@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none">
+  <!-- 방패 -->
+  <path d="M120 26 L192 52 L192 118 C192 164 162 196 120 214 C78 196 48 164 48 118 L48 52 Z"
+        fill="#f7f6f4" stroke="#141413" stroke-width="7" stroke-linejoin="round"/>
+  <path d="M120 46 L174 66 L174 118 C174 154 152 180 120 195 Z" fill="#16a34a" opacity="0.15"/>
+  <!-- 체크 -->
+  <path d="M90 118 L112 140 L154 92" stroke="#16a34a" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- 강조 점 -->
+  <circle cx="196" cy="40" r="7" fill="#F59E0B"/>
+</svg>

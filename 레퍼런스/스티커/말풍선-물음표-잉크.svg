@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none">
+  <!-- 말풍선 -->
+  <path d="M42 52 C42 40 52 32 64 32 L176 32 C188 32 198 40 198 52 L198 132 C198 144 188 152 176 152 L112 152 L76 190 L80 152 L64 152 C52 152 42 144 42 132 Z"
+        fill="#f7f6f4" stroke="#141413" stroke-width="7" stroke-linejoin="round"/>
+  <!-- 물음표 -->
+  <path d="M96 76 C96 60 108 52 121 52 C136 52 146 61 146 74 C146 86 138 91 130 97 C123 102 120 107 120 116"
+        stroke="#141413" stroke-width="12" stroke-linecap="round" fill="none"/>
+  <circle cx="120" cy="136" r="8" fill="#F59E0B"/>
+  <!-- 갸웃 포인트 -->
+  <g stroke="#F59E0B" stroke-width="8" stroke-linecap="round">
+    <line x1="206" y1="70" x2="218" y2="62"/>
+    <line x1="208" y1="96" x2="222" y2="96"/>
+  </g>
+</svg>

@@ -1,0 +1,25 @@
+{
+  "name": "youtube-creator-remotion",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Remotion 평가 샌드박스 — youtube-creator 영상 소스 렌더러 후보 (타임라인.json 동기화 데모 포함)",
+  "scripts": {
+    "dev": "remotion studio",
+    "compositions": "remotion compositions",
+    "still": "remotion still Main out/preview.png --frame 75",
+    "render": "remotion render Main out/capture.mp4 --codec h264 --crf 17",
+    "final": "remotion render Final out/final.mp4 --codec h264 --crf 17"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.496",
+    "@remotion/media-utils": "4.0.496",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "remotion": "4.0.496"
+  },
+  "devDependencies": {
+    "@types/react": "19.2.17",
+    "@types/react-dom": "19.2.3",
+    "typescript": "5.9.3"
+  }
+}

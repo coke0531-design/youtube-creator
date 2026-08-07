@@ -1,0 +1,6 @@
+# youtube-creator 파이프라인 검증 완료 버전 (2026-07-15, Python 3.12.10 기준)
+# 설치: python -m pip install -r requirements.txt && python -m playwright install chromium
+# 업그레이드는 검증 후에만 — CapCut 자동 업데이트 OFF와 같은 이유(환경 표류 방지).
+pycapcut==0.0.3
+playwright==1.57.0
+imageio-ffmpeg==0.6.0

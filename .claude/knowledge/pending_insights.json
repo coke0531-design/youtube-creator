@@ -1,0 +1,79 @@
+[
+  {
+    "session_id": "5ec4023b",
+    "date": "2026-07-06",
+    "pattern": "대화형 전환 프롬프트는 턴 순서를 고정하기보다 “각 턴이 수행해야 하는 기능”을 정의할 때 덜 딱딱해진다. 사용자의 탈선 발화는 복귀 실패가 아니라 다음 기능을 채울 소재로 취급할 수 있다.",
+    "keywords": [
+      "journey-compass",
+      "loose-harness",
+      "branch-vs-working-tree-review",
+      "sensitive-topic-non-inheritance",
+      "anti-overreach"
+    ],
+    "status": "pending"
+  },
+  {
+    "session_id": "019f3580",
+    "date": "2026-07-06",
+    "pattern": "문서화된 안전 계약은 실제 코드의 구조적 강제와 데이터의 반례 가능성까지 확인해야 한다. 특히 전역 substring 치환은 현재 데이터가 안전해 보여도 사전 확장 시 순서 의존성과 문맥 오염이 빠르게 생길 수 있다.",
+    "keywords": [
+      "srt-correction",
+      "load-time-validation",
+      "context-independent-dictionary",
+      "byte-preservation"
+    ],
+    "status": "pending"
+  },
+  {
+    "session_id": "019f3590",
+    "date": "2026-07-06",
+    "pattern": "문서가 위험을 “인정”하는 것과 코드가 위험을 “방지”하는 것은 별개다. 특히 전역 substring replacement는 future input이 unbounded인 경우 도메인 확률 주장만으로 corruption risk가 사라지지 않는다.",
+    "keywords": [
+      "substring-replacement",
+      "context-independent-gate",
+      "ordering-contract",
+      "static-review"
+    ],
+    "status": "pending"
+  },
+  {
+    "session_id": "6dad4dbf",
+    "date": "2026-07-06",
+    "pattern": "공유 가능한 식별자(`result_id`)는 인증 수단으로 쓰면 안 된다. URL에 실릴 수 있는 값과 브라우저 소유 비밀값을 분리해야 상담 이력 같은 개인화 데이터를 안전하게 보호할 수 있다.",
+    "keywords": [
+      "free-saju-v8",
+      "bridge-chat",
+      "owner-token",
+      "token-rotation",
+      "result-id-security",
+      "dual-review",
+      "dev-deploy"
+    ],
+    "status": "pending"
+  },
+  {
+    "session_id": "019f35da",
+    "date": "2026-07-06",
+    "pattern": "비git 델타 리뷰에서는 첨부된 최종 상태와 실제 워크스페이스 파일을 대조하고, 사전/스크립트/SKILL처럼 선언과 실행 경로가 나뉜 파일을 함께 확인해야 한다.",
+    "keywords": [
+      "replace_watch",
+      "JSON duplicate keys",
+      "fail-loud",
+      "manual-review"
+    ],
+    "status": "pending"
+  },
+  {
+    "session_id": "019f41d8",
+    "date": "2026-07-08",
+    "pattern": "프롬프트 문서가 강한 품질 원칙을 선언해도, 결정론 게이트가 부분 문자열 하나만 hard FAIL하면 파이프라인 전체 품질은 보장되지 않는다. 검증기는 “선언된 원칙”이 아니라 “실제로 exit code를 바꾸는 조건”을 기준으로 평가해야 한다.",
+    "keywords": [
+      "deterministic-gate",
+      "fail-loud",
+      "CTA-regex",
+      "downstream-contract",
+      "declaration-implementation-drift"
+    ],
+    "status": "pending"
+  }
+]

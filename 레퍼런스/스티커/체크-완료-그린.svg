@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 240" fill="none">
+  <!-- 축포 라인 -->
+  <g stroke="#16a34a" stroke-width="8" stroke-linecap="round">
+    <line x1="120" y1="18" x2="120" y2="36"/>
+    <line x1="52" y1="48" x2="65" y2="61"/>
+    <line x1="188" y1="48" x2="175" y2="61"/>
+  </g>
+  <!-- 배지 -->
+  <circle cx="120" cy="128" r="72" fill="#16a34a" stroke="#141413" stroke-width="7"/>
+  <circle cx="120" cy="128" r="56" fill="none" stroke="#ffffff" stroke-width="5" opacity="0.45"/>
+  <!-- 체크 -->
+  <path d="M88 130 L110 152 L154 104" stroke="#ffffff" stroke-width="14" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

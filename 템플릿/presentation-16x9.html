@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PULLING NNN — (제목)</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" as="style" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+  <style>
+    /* ============================================================
+       PULLING 브랜드 토큰 (design.md SSOT — 영상 소스 모드: 라이트 고정, 4색 원칙)
+       흰 배경 + 잉크 + 주 강조 앰버 + 보조 강조 그린
+    ============================================================ */
+    :root {
+      --bg-page: #ffffff;
+      --bg-surface: #f7f6f4;
+      --bg-elevated: #efeeea;
+      --bg-border: rgba(20, 20, 19, 0.08);
+      --bg-border-strong: rgba(20, 20, 19, 0.14);
+
+      --text-primary: #141413;
+      --text-secondary: #5e5d59;
+      --text-tertiary: #a39e98;
+
+      --accent: #F59E0B;          /* 주 강조 — 그래픽/큰 숫자 */
+      --accent-text: #D97706;     /* 주 강조 — 작은 텍스트용 */
+      --accent-subtle: rgba(245, 158, 11, 0.10);
+      --accent-ring: rgba(245, 158, 11, 0.25);
+
+      --green: #16a34a;           /* 보조 강조 — 성공/체크/2번째 시리즈 */
+      --green-soft: rgba(22, 163, 74, 0.08);
+      --green-ring: rgba(22, 163, 74, 0.22);
+
+      --shadow-card: 0 1px 2px rgba(20,20,19,0.04), 0 4px 14px rgba(20,20,19,0.04);
+      --shadow-elevated: 0 2px 4px rgba(20,20,19,0.05), 0 12px 32px rgba(20,20,19,0.06);
+      --shadow-accent-ring: 0 0 0 1px var(--accent-ring);
+
+      --font-sans: 'Pretendard', 'Noto Sans KR', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Fira Code', 'Consolas', monospace;
+
+      /* 2026-07-02 재상향(1차: 2026-06-22): 화면을 더 꽉 채우도록 글자 스케일 ↑ (캡처 뷰포트 1920px에서 max값이 그대로 렌더됨).
+         9:16 쇼츠는 자체 :root라 영향 없음. 슬라이드-디자인.md 글자 크기 표와 동기화. */
+      --text-xs: clamp(0.78rem, 0.45vw + 0.68rem, 1.05rem);
+      --text-sm: clamp(0.92rem, 0.55vw + 0.80rem, 1.20rem);
+      --text-base: clamp(1.05rem, 0.6vw + 0.92rem, 1.40rem);
+      --text-lg: clamp(1.25rem, 0.8vw + 1.05rem, 1.75rem);
+      --text-xl: clamp(1.55rem, 1.2vw + 1.25rem, 2.30rem);
+      --text-2xl: clamp(2.25rem, 2.6vw + 1.60rem, 3.95rem);
+      --text-3xl: clamp(3.00rem, 3.8vw + 1.90rem, 5.40rem);
+      --text-4xl: clamp(3.50rem, 5.6vw + 1.70rem, 7.20rem);
+      --text-hero: clamp(4.0rem, 9vw + 1rem, 9.60rem);
+
+      --slide-duration: 0.45s;
+      --slide-easing: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      --stagger-delay: 80ms;
+
+      /* 자막 안전 영역: 1080p 기준 하단 230px (CapCut 자막 자리 — 콘텐츠 침범 금지) */
+      --caption-safe: 21vh;
+    }
+
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body { font-family: var(--font-sans); background: var(--bg-page); color: var(--text-primary); -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: break-word; }
+    strong, .highlight { color: var(--accent-text); font-weight: 700; }
+    em { font-style: normal; }
+
+    /* 한글 줄바꿈 보정: keep-all이 어절 중간 꺾임을 막고(넘칠 때만 break-word로 강제 개행),
+       여러 줄 제목/문구는 text-wrap: balance로 줄 길이를 고르게 — 한 단어만 낙오하는 줄바꿈 방지.
+       의미상 붙어야 하는 짧은 구절은 <span class="nobr">로 감싼다 (긴 구절 금지 — 넘침 위험). */
+    h1, h2, h3, .subtitle, .hero-sub, .quote-text, .mark, .num-text, .card p, .split-card p { text-wrap: balance; }
+    .nobr { white-space: nowrap; }
+
+    /* ---------- 슬라이드 시스템 ---------- */
+    #slide-container { width: 100vw; height: 100vh; position: relative; user-select: none; }
+    .slide {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      text-align: center;
+      padding: clamp(1.5rem, 4.5vw, 5rem);
+      padding-bottom: calc(clamp(1.5rem, 3vw, 3rem) + var(--caption-safe));
+      opacity: 0; transform: translateX(60px) translateZ(0);
+      transition: opacity var(--slide-duration) ease, transform var(--slide-duration) var(--slide-easing);
+      pointer-events: none; z-index: 0;
+    }
+    .slide.active { opacity: 1; transform: translateX(0) translateZ(0); pointer-events: auto; z-index: 2; }
+    .slide.prev { opacity: 0; transform: translateX(-60px) translateZ(0); z-index: 1; }
+
+    /* ---------- 등장 애니메이션 (순차 스태거: --i 인덱스) ---------- */
+    .el { opacity: 0; transform: translateY(16px); transition: opacity 0.4s ease, transform 0.4s ease; transition-delay: calc(var(--i, 0) * var(--stagger-delay)); }
+    .slide.active .el { opacity: 1; transform: translateY(0); }
+    .slide:not(.active) .el { transition-delay: 0ms; }
+
+    .slide.active .el.el--pop, .slide.active .el.el--rise { transition: none; }
+    .slide.active .el.el--pop { animation: elPop 0.55s cubic-bezier(0.34, 1.56, 0.64, 1) both; animation-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.15s); }
+    @keyframes elPop { 0% { transform: translateY(14px) scale(0.88); opacity: 0; } 65% { transform: translateY(-3px) scale(1.04); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+    .slide.active .el.el--rise { animation: elRise 0.6s var(--slide-easing) both; animation-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.15s); transform-origin: bottom center; }
+    @keyframes elRise { 0% { transform: translateY(28px) scale(0.96); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+    .slide.active .grow-scale { animation: growScale 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; animation-delay: calc(var(--i, 0) * 120ms + 0.5s); opacity: 0; transform-origin: center; }
+    @keyframes growScale { 0% { transform: scale(0.3); opacity: 0; } 70% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+    .slide.active .pulse { animation: highlightPulse 2s ease-in-out 1.2s infinite; }
+    @keyframes highlightPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); } 50% { box-shadow: 0 0 0 14px rgba(245,158,11,0.28); } }
+
+    /* ---------- 모션 렉시콘 preset (design.md §4 렉시콘과 1:1 — 2026-07-31 신설) ----------
+       스윕·드로우온·리빌류 강조 preset은 한 슬라이드에 1종만 (기본 등장 스태거/라이즈/팝과 조합은 자유) */
+    /* 하이라이트 스윕: 앰버 형광펜 띠가 텍스트 뒤를 좌→우로 훑고 지나감 */
+    .hl-sweep { background-image: linear-gradient(rgba(245,158,11,0.22), rgba(245,158,11,0.22)); background-repeat: no-repeat; background-size: 0% 82%; background-position: 0 62%; border-radius: 4px; transition: background-size 0.6s var(--slide-easing); transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.35s); }
+    .slide.active .hl-sweep { background-size: 100% 82%; }
+    /* 드로우온: 밑줄(.u-draw)·취소선(.strike-draw)이 좌→우로 그어짐 */
+    .u-draw, .strike-draw { position: relative; }
+    .u-draw::after, .strike-draw::after { content: ''; position: absolute; left: 0; width: 100%; transform: scaleX(0); transform-origin: left center; transition: transform 0.6s var(--slide-easing); transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.4s); }
+    .u-draw::after { bottom: -0.06em; height: 0.12em; background: var(--accent); border-radius: 999px; }
+    .strike-draw::after { top: 52%; height: 0.09em; background: var(--text-primary); }
+    .slide.active .u-draw::after, .slide.active .strike-draw::after { transform: scaleX(1); }
+    /* 드로우온(SVG): path/line/circle에 class="draw-on" + pathLength="1" 필수 (stroke 최소 3px) */
+    .draw-on { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 0.7s var(--slide-easing); transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.4s); }
+    .slide.active .draw-on { stroke-dashoffset: 0; }
+    /* 와이프 리빌: 마스크가 좌→우로 지나가며 요소가 드러남 */
+    .wipe-reveal { clip-path: inset(0 100% 0 0); transition: clip-path 0.65s var(--slide-easing); transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.2s); }
+    .slide.active .wipe-reveal { clip-path: inset(0 0 0 0); }
+    /* 프로그레스 스윕: 이미 그려진 바/도넛이 값 A→B로 차오름 — --w0/--off0 = 시작값(A), --w/--off = 목표값(B).
+       카운터의 A→B는 data-counter에 data-from 추가. grow-in(0→값)과 구분해서 쓴다 */
+    .hbar-fill--sweep { width: var(--w0, 30%); }
+    .donut-arc--sweep { stroke-dashoffset: var(--off0); }
+    /* 스티커: 레퍼런스/스티커/의 4색 벡터 SVG를 04_영상소스/로 복사해 참조 (design.md §5 스티커 규칙)
+       등장 = el--pop, 시선 유도 = pulse 권장. 크기는 --sw로 조정 */
+    .sticker { display: inline-flex; align-items: center; justify-content: center; width: var(--sw, 340px); }
+    .sticker img, .sticker svg { width: 100%; height: auto; display: block; }
+
+    /* ---------- Lottie 모션 스테이지 (선택 — 템플릿/lottie/README.md 참조) ----------
+       슬라이드 활성화 시 처음부터 재생되어 캡처 타임라인과 결정론 동기.
+       씬 JSON 은 design.md 4색 원칙·Pretendard 를 따른 것만 사용한다. */
+    .lottie-stage { width: var(--lw, 72%); max-width: 1500px; aspect-ratio: 16 / 9; }
+    .lottie-stage svg { display: block; }
+
+    /* ---------- 공통 타이포 ---------- */
+    .section-label {
+      display: inline-block; font-size: var(--text-base); letter-spacing: 0.2em; text-transform: uppercase;
+      color: var(--accent-text); font-weight: 700; margin-bottom: 1.8rem;
+      padding: 0.35rem 0.9rem; background: var(--accent-subtle); border-radius: 4px;
+    }
+    .slide h2 { font-size: var(--text-3xl); font-weight: 800; letter-spacing: -0.02em; line-height: 1.2; max-width: 22ch; margin-bottom: 1rem; }
+    .slide .subtitle { font-size: var(--text-base); color: var(--text-secondary); margin-bottom: 2.8rem; max-width: 52ch; line-height: 1.55; }
+
+    /* ---------- 타이틀/히어로/엔딩 ---------- */
+    .slide--title { background: radial-gradient(ellipse at 50% 30%, var(--accent-subtle) 0%, transparent 55%), var(--bg-page); }
+    .slide--title h1 { font-size: var(--text-4xl); font-weight: 800; line-height: 1.12; letter-spacing: -0.03em; max-width: 22ch; }
+    .slide--title .accent-dot { display: inline-block; width: 0.55em; height: 0.55em; background: var(--accent); border-radius: 50%; margin-left: 0.15em; vertical-align: 0.05em; box-shadow: var(--shadow-accent-ring); }
+    .slide--title .meta { font-size: var(--text-sm); color: var(--text-tertiary); margin-top: 3rem; letter-spacing: 0.08em; }
+    .slide--hero h1 { font-size: var(--text-hero); font-weight: 900; line-height: 1.02; letter-spacing: -0.045em; max-width: 22ch; }
+    .slide--hero h1 em { color: var(--accent); font-weight: 900; }
+    .slide--hero .hero-kicker { font-size: var(--text-sm); letter-spacing: 0.3em; color: var(--accent-text); font-weight: 800; margin-bottom: 2rem; text-transform: uppercase; }
+    .slide--hero .hero-sub { font-size: var(--text-xl); color: var(--text-secondary); margin-top: 2rem; max-width: 50ch; line-height: 1.5; }
+    .slide--ending { background: radial-gradient(ellipse at 50% 55%, var(--accent-subtle) 0%, transparent 55%), var(--bg-page); }
+    .slide--ending .mark { font-size: var(--text-4xl); font-weight: 900; letter-spacing: -0.04em; line-height: 1.15; }
+    .slide--ending .mark .period { color: var(--accent); }
+
+    /* ---------- 불릿/숫자 리스트 ---------- */
+    .bullet-list { list-style: none; display: flex; flex-direction: column; gap: 1.15rem; text-align: left; max-width: 880px; width: 100%; }
+    .bullet-list li { font-size: var(--text-lg); color: var(--text-secondary); padding-left: 1.8rem; position: relative; line-height: 1.6; }
+    .bullet-list li::before { content: ''; position: absolute; left: 0; top: 0.6em; width: 0.45rem; height: 0.45rem; border-radius: 50%; background: var(--accent); }
+    .bullet-list li.check::before { content: '✓'; background: none; width: auto; height: auto; color: var(--green); font-size: var(--text-base); font-weight: 800; top: 0.1em; }
+    .bullet-list li.cross::before { content: '×'; background: none; width: auto; height: auto; color: var(--text-primary); font-size: var(--text-base); font-weight: 800; top: 0.1em; }
+    .num-list { max-width: 1080px; width: 100%; display: flex; flex-direction: column; gap: 2.1rem; text-align: left; }
+    .num-row { display: flex; align-items: baseline; gap: 1.8rem; }
+    .num-row .num { font-family: var(--font-mono); font-size: clamp(2.4rem, 3.4vw, 4rem); font-weight: 800; font-variant-numeric: tabular-nums; min-width: 2.4em; line-height: 1; color: var(--accent-text); }
+    .num-row .num--green { color: var(--green); }
+    .num-row .num-text { font-size: var(--text-2xl); font-weight: 700; line-height: 1.3; }
+    .num-row .num-sub { display: block; font-size: var(--text-lg); color: var(--text-secondary); font-weight: 500; margin-top: 0.45rem; }
+
+    /* ---------- KPI ---------- */
+    .kpi-grid { display: grid; grid-template-columns: 1fr auto 1fr; align-items: stretch; gap: 1.8rem; max-width: 1200px; width: 100%; }
+    .kpi-card { background: var(--bg-surface); border: 1px solid var(--bg-border); border-radius: 18px; padding: 3rem 2.4rem; text-align: center; box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 0.7rem; justify-content: center; }
+    .kpi-card--accent { background: var(--bg-page); border-color: var(--accent); box-shadow: var(--shadow-elevated), var(--shadow-accent-ring); }
+    .kpi-card .kpi-label { font-size: var(--text-xs); letter-spacing: 0.2em; text-transform: uppercase; color: var(--text-tertiary); font-weight: 700; }
+    .kpi-card .kpi-value { font-size: clamp(3.2rem, 6vw + 1rem, 7.75rem); font-weight: 900; line-height: 1; letter-spacing: -0.04em; font-variant-numeric: tabular-nums; }
+    .kpi-card--accent .kpi-value { color: var(--accent); }
+    .kpi-card .kpi-unit { font-size: var(--text-base); color: var(--text-secondary); margin-left: 0.2em; font-weight: 600; }
+    .kpi-arrow { display: flex; align-items: center; justify-content: center; font-size: 2rem; color: var(--accent-text); font-weight: 900; }
+
+    /* ---------- 카드 그리드 / 분할 ---------- */
+    .card-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 1.6rem; max-width: 1260px; width: 100%; }
+    .card-grid--2 { grid-template-columns: repeat(2, 1fr); max-width: 1100px; }
+    .card { background: var(--bg-surface); border: 1px solid var(--bg-border); border-radius: 12px; padding: 2.4rem; text-align: left; box-shadow: var(--shadow-card); }
+    .card .card-num { font-size: var(--text-sm); color: var(--accent-text); font-weight: 800; letter-spacing: 0.1em; margin-bottom: 0.5rem; }
+    .card h3 { font-size: var(--text-xl); font-weight: 800; margin-bottom: 0.4rem; }
+    .card p { font-size: var(--text-base); color: var(--text-secondary); line-height: 1.55; }
+    .split-row { display: flex; align-items: stretch; max-width: 1220px; width: 100%; }
+    .split-card { flex: 1; background: var(--bg-surface); border: 1px solid var(--bg-border); border-radius: 18px; padding: 2.4rem 2.6rem; display: flex; flex-direction: column; align-items: flex-start; text-align: left; gap: 0.7rem; box-shadow: var(--shadow-card); }
+    .split-card--primary { background: var(--bg-page); border-color: var(--accent); box-shadow: var(--shadow-elevated), var(--shadow-accent-ring); }
+    .split-card .card-tag { font-size: var(--text-xs); letter-spacing: 0.18em; text-transform: uppercase; font-weight: 700; color: var(--text-tertiary); }
+    .split-card--primary .card-tag { color: var(--accent-text); }
+    .split-card h3 { font-size: var(--text-xl); font-weight: 800; }
+    .split-card p { font-size: var(--text-base); color: var(--text-secondary); line-height: 1.6; }
+    .split-arrow { display: flex; align-items: center; padding: 0 1.4rem; color: var(--text-tertiary); font-size: 1.4rem; font-weight: 700; }
+
+    /* ---------- Before/After (레드 금지 — Before=뉴트럴, After=그린) ---------- */
+    .ba-container { display: grid; grid-template-columns: 1fr 1fr; gap: 1.8rem; max-width: 1180px; width: 100%; }
+    .ba-card { border-radius: 16px; padding: 1.8rem 2rem; text-align: left; box-shadow: var(--shadow-card); }
+    .ba-card--before { background: var(--bg-surface); border: 1px solid var(--bg-border-strong); }
+    .ba-card--after  { background: var(--green-soft); border: 1px solid var(--green-ring); }
+    .ba-label { font-size: var(--text-xs); letter-spacing: 0.2em; text-transform: uppercase; margin-bottom: 1rem; font-weight: 800; }
+    .ba-card--before .ba-label { color: var(--text-secondary); }
+    .ba-card--after  .ba-label { color: var(--green); }
+    .ba-title { font-size: var(--text-xl); font-weight: 800; margin-bottom: 1rem; }
+    .ba-list { list-style: none; display: flex; flex-direction: column; gap: 0.55rem; }
+    .ba-list li { font-size: var(--text-base); color: var(--text-secondary); padding-left: 1.6rem; position: relative; line-height: 1.55; }
+    .ba-card--before .ba-list li::before { content: '×'; position: absolute; left: 0; top: -0.05em; color: var(--text-primary); font-weight: 900; font-size: 1.1em; }
+    .ba-card--after .ba-list li::before { content: '✓'; position: absolute; left: 0; color: var(--green); font-weight: 800; }
+
+    /* ---------- 인용 / 로고 / 이미지 ---------- */
+    .quote-block { max-width: 65ch; }
+    .quote-mark { font-size: clamp(6rem, 11vw, 14rem); line-height: 0.7; color: var(--accent); opacity: 0.35; font-family: Georgia, serif; }
+    .quote-text { font-size: var(--text-3xl); font-style: italic; font-weight: 400; line-height: 1.5; margin: 1rem 0; }
+    .quote-text em { color: var(--accent-text); font-weight: 800; font-style: italic; }
+    .quote-author { font-size: var(--text-sm); color: var(--accent-text); margin-top: 2rem; letter-spacing: 0.05em; font-weight: 700; }
+    .brand-logo { display: inline-flex; align-items: center; justify-content: center; font-weight: 900; border-radius: 50%; box-shadow: var(--shadow-elevated); background: #ffffff; border: 1px solid var(--bg-border); flex-shrink: 0; }
+    .brand-logo--md { width: 240px; height: 240px; } .brand-logo--lg { width: 360px; height: 360px; }
+    .brand-logo img { width: 82%; height: 82%; object-fit: contain; border-radius: 50%; display: block; }
+    .image-card { max-width: 980px; width: 100%; border-radius: 16px; overflow: hidden; box-shadow: var(--shadow-elevated); border: 1px solid var(--bg-border); background: var(--bg-page); margin: 0.5rem auto; }
+    .image-card img { width: 100%; height: auto; display: block; }
+    .image-card .image-caption { padding: 0.85rem 1.2rem; font-size: var(--text-sm); color: var(--text-tertiary); text-align: left; border-top: 1px solid var(--bg-border); }
+
+    /* ---------- 차트: 가로 바 ---------- */
+    .hbar-group { max-width: 1260px; width: 100%; display: flex; flex-direction: column; gap: 1.7rem; }
+    .hbar-row { display: flex; align-items: center; gap: 1.5rem; }
+    .hbar-row .hbar-label { font-size: var(--text-xl); font-weight: 700; min-width: 7em; text-align: right; }
+    .hbar-track { flex: 1; height: 5rem; border-radius: 999px; background: var(--bg-elevated); overflow: hidden; }
+    .hbar-fill { height: 100%; border-radius: 999px; width: 0; transition: width 1s var(--slide-easing) 0.4s; display: flex; align-items: center; justify-content: flex-end; padding-right: 1rem; }
+    .hbar-fill .hbar-value { font-size: var(--text-lg); font-weight: 800; font-variant-numeric: tabular-nums; color: #fff; white-space: nowrap; }
+    .hbar-fill--accent { background: var(--accent); }
+    .hbar-fill--green { background: var(--green); }
+    .hbar-fill--neutral { background: var(--bg-border-strong); }
+    .hbar-fill--neutral .hbar-value { color: var(--text-primary); }
+    .slide.active .hbar-fill { width: var(--w, 60%); }
+
+    /* ---------- 차트: 도넛 (SVG stroke-dashoffset) ---------- */
+    .donut-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
+    .donut-wrap svg { transform: rotate(-90deg); }
+    .donut-track { fill: none; stroke: var(--bg-elevated); }
+    .donut-arc { fill: none; stroke: var(--accent); stroke-linecap: round; stroke-dasharray: var(--circ); stroke-dashoffset: var(--circ); transition: stroke-dashoffset 1.2s var(--slide-easing) 0.4s; }
+    .slide.active .donut-arc { stroke-dashoffset: var(--off); }
+    .donut-center { position: absolute; text-align: center; }
+    .donut-center .donut-value { font-size: clamp(4rem, 7.2vw, 7.75rem); font-weight: 900; font-variant-numeric: tabular-nums; color: var(--accent); letter-spacing: -0.04em; }
+    .donut-center .donut-label { font-size: var(--text-base); color: var(--text-secondary); font-weight: 600; margin-top: 0.3rem; }
+
+    /* ---------- 스테이지 (한 슬라이드 내 순차 전환) ---------- */
+    .stages-container { position: relative; width: 100%; max-width: 1200px; height: clamp(460px, 56vh, 700px); margin: 1rem auto 0; }
+    .stage { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1.4rem; opacity: 0; transform: translateY(24px) scale(0.96); transition: opacity 0.55s var(--slide-easing), transform 0.55s var(--slide-easing); pointer-events: none; }
+    .stage.is-active { opacity: 1; transform: translateY(0) scale(1); pointer-events: auto; }
+    .stage img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 14px; box-shadow: var(--shadow-elevated); border: 1px solid var(--bg-border); }
+
+    /* ---------- UI 크롬 (녹화 시 전체화면 F → 자동 숨김) ---------- */
+    .chrome { position: fixed; z-index: 10; }
+    .chrome--bottom-right { bottom: 1.25rem; right: 1.25rem; font-size: var(--text-xs); color: var(--text-tertiary); letter-spacing: 0.08em; }
+    .chrome--bottom-center { bottom: 1.25rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 0.6rem; }
+    .progress-bar { position: fixed; top: 0; left: 0; height: 3px; background: var(--accent); width: 0%; transition: width 0.45s var(--slide-easing); z-index: 11; }
+    .dot-nav { display: flex; gap: 0.4rem; flex-wrap: wrap; max-width: 60vw; justify-content: center; }
+    .dot-nav button { width: 0.5rem; height: 0.5rem; border-radius: 50%; border: 1px solid var(--bg-border-strong); background: transparent; padding: 0; cursor: pointer; transition: all 0.2s ease; }
+    .dot-nav button.is-active { background: var(--accent); border-color: var(--accent); width: 1.2rem; border-radius: 999px; }
+    .counter { font-size: var(--text-xs); color: var(--text-tertiary); letter-spacing: 0.1em; font-variant-numeric: tabular-nums; }
+    body.fullscreen-mode .chrome, body.fullscreen-mode .progress-bar { display: none; }
+
+    /* ---------- 동기화 녹화 커버 (오토플레이 t=0 마커) ---------- */
+    #sync-cover {
+      position: fixed; inset: 0; z-index: 50; display: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 1.2rem;
+      background: var(--bg-page);
+    }
+    #sync-cover .sync-dot { width: 1.1rem; height: 1.1rem; border-radius: 50%; background: var(--accent); box-shadow: var(--shadow-accent-ring); }
+    #sync-cover h3 { font-size: var(--text-xl); font-weight: 800; letter-spacing: -0.01em; }
+    #sync-cover p { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.8; text-align: center; }
+
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+  </style>
+</head>
+<body>
+  <div class="progress-bar" id="progress-bar"></div>
+
+  <!-- 동기화 녹화 커버: A로 대기 → SPACE로 시작. 이 화면이 사라지는 프레임 = 오디오 0초 -->
+  <div id="sync-cover">
+    <div class="sync-dot"></div>
+    <h3>동기화 녹화 대기</h3>
+    <p>화면 녹화를 먼저 시작한 뒤 <strong>SPACE</strong>를 누르세요.<br>
+    SPACE를 누르는 순간(이 화면이 사라지는 프레임)이 <strong>오디오 0초</strong>입니다.<br>
+    ESC 취소 · URL <code>?start=초</code>로 중간부터 재생</p>
+  </div>
+
+  <div class="chrome chrome--bottom-right">← → SPACE · A 동기화재생 · F FULLSCREEN(녹화용)</div>
+  <div class="chrome chrome--bottom-center">
+    <div class="dot-nav" id="dot-nav"></div>
+    <div class="counter" id="counter">01 / 02</div>
+  </div>
+
+  <div id="slide-container">
+
+    <!-- 1. 타이틀 (예시 — 실제 슬라이드로 교체) -->
+    <section class="slide slide--title" data-slide>
+      <span class="section-label el" style="--i:0">PULLING · NNN</span>
+      <h1 class="el" style="--i:1">제목을 입력하세요<span class="accent-dot"></span></h1>
+      <p class="subtitle el" style="--i:2">부제를 입력하세요</p>
+      <p class="meta el" style="--i:3">PULLING · EP.NNN</p>
+    </section>
+
+    <!-- 2. 도넛 차트 예시 (실제 슬라이드로 교체 — 한 슬라이드 = 한 포컬 포인트) -->
+    <section class="slide" data-slide>
+      <span class="section-label el" style="--i:0">DATA</span>
+      <h2 class="el" style="--i:1">도넛 차트 <strong>사용 예시</strong></h2>
+      <div class="donut-wrap el el--rise" style="--i:2">
+        <!-- 도넛: r=235 → 둘레 ≈ 1476. --off = 1476 × (1 - 비율) -->
+        <svg width="560" height="560" viewBox="0 0 560 560">
+          <circle class="donut-track" cx="280" cy="280" r="235" stroke-width="44"/>
+          <circle class="donut-arc" cx="280" cy="280" r="235" stroke-width="44" style="--circ:1476; --off:399"/>
+        </svg>
+        <div class="donut-center">
+          <p class="donut-value" data-counter data-target="73" data-suffix="%">0%</p>
+          <p class="donut-label">레이블</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- 3. 가로 바 차트 예시 (실제 슬라이드로 교체) -->
+    <section class="slide" data-slide>
+      <span class="section-label el" style="--i:0">DATA</span>
+      <h2 class="el" style="--i:1">가로 바 <strong>사용 예시</strong></h2>
+      <div class="hbar-group el" style="--i:2;">
+        <div class="hbar-row">
+          <p class="hbar-label">기존 방식</p>
+          <div class="hbar-track"><div class="hbar-fill hbar-fill--neutral" style="--w:90%"><span class="hbar-value">90</span></div></div>
+        </div>
+        <div class="hbar-row">
+          <p class="hbar-label">새 방식</p>
+          <div class="hbar-track"><div class="hbar-fill hbar-fill--accent" style="--w:18%"><span class="hbar-value">18</span></div></div>
+        </div>
+      </div>
+    </section>
+
+  </div>
+
+  <!-- Lottie 플레이어(선택) — lottie/ 폴더가 없으면 조용히 건너뛴다(아래 window.lottie 가드) -->
+  <script src="lottie/lottie.min.js"></script>
+  <script>
+    // ============ 슬라이드 내비게이션 + 카운터/스테이지 헬퍼 ============
+    const slides = Array.from(document.querySelectorAll('[data-slide]'));
+    const dotNav = document.getElementById('dot-nav');
+    const counterEl = document.getElementById('counter');
+    const progressBar = document.getElementById('progress-bar');
+    let idx = 0;
+
+    slides.forEach((_, i) => {
+      const b = document.createElement('button');
+      b.addEventListener('click', () => go(i));
+      dotNav.appendChild(b);
+    });
+
+    function animateCounter(el) {
+      const target = parseFloat(el.dataset.target || '0');
+      const from = parseFloat(el.dataset.from || '0'); // 프로그레스 스윕: 시작값 A (기본 0 = 그로우 인)
+      const suffix = el.dataset.suffix || '';
+      const prefix = el.dataset.prefix || '';
+      const dur = parseInt(el.dataset.duration || '1100', 10);
+      let t0 = null; // rAF 타임스탬프 기준 (performance.now와 도메인이 다를 수 있음 — 헤드리스 BeginFrame 제어)
+      function tick(now) {
+        if (t0 === null) t0 = now;
+        const p = Math.min((now - t0) / dur, 1);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = prefix + Math.round(from + eased * (target - from)).toLocaleString() + suffix;
+        if (p < 1) requestAnimationFrame(tick);
+      }
+      requestAnimationFrame(tick);
+    }
+
+    function setStage(slide, g) {
+      const stages = slide.querySelectorAll('.stage');
+      if (!stages.length) return;
+      const n = Math.max(0, Math.min(g, stages.length - 1));
+      stages.forEach((s, i) => s.classList.toggle('is-active', i === n));
+      slide.dataset.stageIdx = String(n);
+    }
+    function activateStages(slide) { setStage(slide, 0); }
+    function advanceStage(slide) {
+      const stages = slide.querySelectorAll('.stage');
+      if (!stages.length) return false;
+      const cur = parseInt(slide.dataset.stageIdx || '0', 10);
+      if (cur >= stages.length - 1) return false;
+      stages[cur].classList.remove('is-active');
+      stages[cur + 1].classList.add('is-active');
+      slide.dataset.stageIdx = String(cur + 1);
+      return true;
+    }
+
+    // ============ Lottie 모션 스테이지 (선택) ============
+    // <div class="lottie-stage" data-lottie="lottie/y2-stat.json"></div>
+    // data-lottie 가 '#id' 면 <script type="application/json" id="id"> 인라인 JSON 사용(file:// 안전).
+    // data-lottie-loop="1" 이면 루프. 슬라이드 활성화 때마다 0프레임부터 재생(결정론 동기).
+    const lottieAnims = new Map();
+    if (window.lottie) {
+      document.querySelectorAll('.lottie-stage').forEach(el => {
+        const src = el.dataset.lottie;
+        if (!src) return;
+        const opts = { container: el, renderer: 'svg', loop: el.dataset.lottieLoop === '1', autoplay: false };
+        if (src.startsWith('#')) {
+          const data = document.querySelector(src);
+          if (!data) return;
+          opts.animationData = JSON.parse(data.textContent);
+        } else {
+          opts.path = src;
+        }
+        lottieAnims.set(el, lottie.loadAnimation(opts));
+      });
+    }
+    function playSlideLotties(slide) {
+      lottieAnims.forEach((anim, el) => {
+        if (slide.contains(el)) anim.goToAndPlay(0, true);
+        else anim.stop();
+      });
+    }
+
+    function go(n) {
+      if (n < 0 || n >= slides.length) return;
+      slides.forEach((s, i) => {
+        s.classList.toggle('active', i === n);
+        s.classList.toggle('prev', i < n);
+      });
+      idx = n;
+      dotNav.querySelectorAll('button').forEach((b, i) => b.classList.toggle('is-active', i === n));
+      counterEl.textContent = String(n + 1).padStart(2, '0') + ' / ' + String(slides.length).padStart(2, '0');
+      progressBar.style.width = ((n + 1) / slides.length * 100) + '%';
+      const s = slides[n];
+      activateStages(s);
+      playSlideLotties(s);
+      s.querySelectorAll('[data-counter]').forEach(el => setTimeout(() => animateCounter(el), 350));
+    }
+
+    // ============ 동기화 오토플레이 (싱크 계약의 핵심) ============
+    // SLIDE_TIMELINE: 타임라인.json·편집지시서와 동일한 타임코드 (t=0 = 오디오 0초)
+    // 항목: { t: 초, s: 슬라이드 인덱스(0부터), g: 스테이지 인덱스(선택) }
+    // 영상 소스 제작 시 transcript.json(실제 발화) 기준으로 채운다.
+    const SLIDE_TIMELINE = [
+      { t: 0.0, s: 0 },
+      { t: 8.4, s: 1 },
+      { t: 16.0, s: 2 },
+      // { t: 15.2, s: 1, g: 1 },  // ← 같은 슬라이드 안 스테이지 전환 예시
+    ];
+
+    const auto = { armed: false, running: false, raf: null, offset: 0 };
+    const cover = document.getElementById('sync-cover');
+
+    function armAutoplay() {
+      auto.armed = true;
+      auto.offset = Math.max(0, parseFloat(new URLSearchParams(location.search).get('start') || '0') || 0);
+      cover.style.display = 'flex';
+    }
+    function cancelAutoplay() {
+      auto.armed = false; auto.running = false;
+      if (auto.raf) cancelAnimationFrame(auto.raf);
+      cover.style.display = 'none';
+    }
+    function applyEntry(e) {
+      if (idx !== e.s) go(e.s);
+      if (e.g != null) setStage(slides[e.s], e.g);
+    }
+    function startAutoplay() {
+      cover.style.display = 'none';
+      auto.running = true;
+      let t0 = null; // 첫 rAF 타임스탬프 기준 — performance.now와 도메인 분리 (헤드리스 BeginFrame 제어 대응)
+      let applied = -1;
+      // ?start= 지점까지의 마지막 상태를 즉시 적용
+      while (applied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[applied + 1].t <= auto.offset) {
+        applied++; applyEntry(SLIDE_TIMELINE[applied]);
+      }
+      function tick(now) {
+        if (!auto.running) return;
+        if (t0 === null) t0 = now - auto.offset * 1000;
+        const t = (now - t0) / 1000;
+        while (applied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[applied + 1].t <= t) {
+          applied++; applyEntry(SLIDE_TIMELINE[applied]);
+        }
+        if (applied < SLIDE_TIMELINE.length - 1) auto.raf = requestAnimationFrame(tick);
+        else { auto.running = false; auto.armed = false; }
+      }
+      auto.raf = requestAnimationFrame(tick);
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (auto.armed && !auto.running) {
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startAutoplay(); return; }
+        if (e.key === 'Escape') { e.preventDefault(); cancelAutoplay(); return; }
+        return;
+      }
+      if (auto.running) {
+        if (e.key === 'Escape') { e.preventDefault(); cancelAutoplay(); }
+        return; // 오토플레이 중 수동 조작 차단 (싱크 보호)
+      }
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); if (!advanceStage(slides[idx])) go(idx + 1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); go(idx - 1); }
+      else if (e.key.toLowerCase() === 'a') { e.preventDefault(); armAutoplay(); }
+      else if (e.key.toLowerCase() === 'f') {
+        if (!document.fullscreenElement) document.documentElement.requestFullscreen();
+        else document.exitFullscreen();
+      }
+    });
+    document.addEventListener('fullscreenchange', () => document.body.classList.toggle('fullscreen-mode', !!document.fullscreenElement));
+
+    // ============ 캡처 모드 (?capture=1 — 헤드리스 자동 녹화용, scripts/capture_slides.py) ============
+    // 크롬 UI 숨김 + 커버를 순수 검정으로 전환(녹화 후 blackdetect로 t=0 프레임 검출) + 외부 시작 트리거 노출
+    if (new URLSearchParams(location.search).get('capture') === '1') {
+      document.body.classList.add('fullscreen-mode');
+      cover.style.background = '#000';
+      Array.from(cover.children).forEach(el => el.style.display = 'none');
+      armAutoplay();
+      // (damage 강제 토글은 capture_slides.py가 JS로 주입 — HTML에는 두지 않는다)
+      // seek(t): 외부(capture_slides.py)가 프레임마다 호출 — 시계 없이 덱 상태를 직접 구동.
+      // 가상시간 + BeginFrame 제어 환경에서 rAF 시계가 어긋나도 타임라인이 정확히 적용된다.
+      let seekApplied = -1;
+      window.__capture = {
+        ready: false,
+        start: startAutoplay,
+        seek(t) {
+          cover.style.display = 'none';
+          while (seekApplied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[seekApplied + 1].t <= t) {
+            seekApplied++; applyEntry(SLIDE_TIMELINE[seekApplied]);
+          }
+        },
+      };
+      document.fonts.ready.then(() => setTimeout(() => { window.__capture.ready = true; }, 500));
+    }
+    go(0);
+  </script>
+</body>
+</html>

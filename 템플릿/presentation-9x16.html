@@ -1,0 +1,329 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PULLING 쇼츠 — (제목)</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" as="style" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+  <style>
+    /* ============================================================
+       PULLING 쇼츠 보일러플레이트 (9:16 세로 — design.md SSOT)
+       흰 배경 + 잉크 + 앰버(주) + 그린(보조). 브라우저 창을 9:16로 맞춰 녹화
+       (또는 1080x1920 디스플레이/모바일 에뮬레이션에서 전체화면)
+    ============================================================ */
+    :root {
+      --bg-page: #ffffff; --bg-surface: #f7f6f4; --bg-elevated: #efeeea;
+      --bg-border: rgba(20,20,19,0.08); --bg-border-strong: rgba(20,20,19,0.14);
+      --text-primary: #141413; --text-secondary: #5e5d59; --text-tertiary: #a39e98;
+      --accent: #F59E0B; --accent-text: #D97706;
+      --accent-subtle: rgba(245,158,11,0.10); --accent-ring: rgba(245,158,11,0.25);
+      --green: #16a34a; --green-soft: rgba(22,163,74,0.08); --green-ring: rgba(22,163,74,0.22);
+      --shadow-card: 0 1px 2px rgba(20,20,19,0.04), 0 4px 14px rgba(20,20,19,0.04);
+      --shadow-elevated: 0 2px 4px rgba(20,20,19,0.05), 0 12px 32px rgba(20,20,19,0.06);
+      --font-sans: 'Pretendard', 'Noto Sans KR', system-ui, -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', 'Consolas', monospace;
+      --slide-duration: 0.45s;
+      --slide-easing: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      --stagger-delay: 80ms;
+      /* 자막 안전 영역: 1080x1920 기준 하단 440px (CapCut 자막 자리) */
+      --caption-safe: 23vh;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 100%; height: 100%; overflow: hidden; }
+    body { font-family: var(--font-sans); background: var(--bg-page); color: var(--text-primary); -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: break-word; }
+    strong, .highlight { color: var(--accent-text); font-weight: 800; }
+    em { font-style: normal; }
+
+    /* 한글 줄바꿈 보정: keep-all이 어절 중간 꺾임을 막고(넘칠 때만 break-word로 강제 개행),
+       여러 줄 문구는 text-wrap: balance로 줄 길이를 고르게 — 한 단어만 낙오하는 줄바꿈 방지.
+       의미상 붙어야 하는 짧은 구절은 <span class="nobr">로 감싼다 (긴 구절 금지 — 세로 화면은 폭이 좁아 넘침 위험 큼). */
+    h2, h3, .impact, .sub, .cta-main, .cta-sub, .ba-card p, .vstep-text { text-wrap: balance; }
+    .nobr { white-space: nowrap; }
+
+    #slide-container { width: 100vw; height: 100vh; position: relative; user-select: none; }
+    .slide {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      text-align: center;
+      padding: clamp(1.5rem, 4.5vw, 3rem);
+      padding-bottom: calc(clamp(1.5rem, 4.5vw, 3rem) + var(--caption-safe));
+      opacity: 0; transform: translateY(40px) translateZ(0);
+      transition: opacity var(--slide-duration) ease, transform var(--slide-duration) var(--slide-easing);
+      pointer-events: none; z-index: 0;
+    }
+    .slide.active { opacity: 1; transform: translateY(0) translateZ(0); pointer-events: auto; z-index: 2; }
+    .slide.prev { opacity: 0; transform: translateY(-40px) translateZ(0); z-index: 1; }
+
+    .el { opacity: 0; transform: translateY(16px); transition: opacity 0.4s ease, transform 0.4s ease; transition-delay: calc(var(--i, 0) * var(--stagger-delay)); }
+    .slide.active .el { opacity: 1; transform: translateY(0); }
+    .slide:not(.active) .el { transition-delay: 0ms; }
+    .slide.active .el.el--pop { transition: none; animation: elPop 0.55s cubic-bezier(0.34,1.56,0.64,1) both; animation-delay: calc(var(--i,0) * var(--stagger-delay) + 0.1s); }
+    @keyframes elPop { 0% { transform: translateY(14px) scale(0.88); opacity: 0; } 65% { transform: translateY(-3px) scale(1.04); opacity: 1; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
+    /* 쇼츠 훅: 첫 슬라이드는 등장 즉시 임팩트 (scale slam) — 키네틱 타이포 게이트: 훅/히어로 한정, 영상당 1~2회 */
+    .slide.active .slam { animation: slam 0.35s cubic-bezier(0.25,0.46,0.45,0.94) both; }
+    @keyframes slam { 0% { transform: scale(1.3); opacity: 0; } 60% { transform: scale(0.96); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
+
+    /* ---------- 모션 렉시콘 preset (design.md §4 렉시콘과 1:1 — 2026-07-31 신설) ----------
+       스윕·드로우온·리빌류 강조 preset은 한 슬라이드에 1종만 */
+    .hl-sweep { background-image: linear-gradient(rgba(245,158,11,0.22), rgba(245,158,11,0.22)); background-repeat: no-repeat; background-size: 0% 82%; background-position: 0 62%; border-radius: 4px; transition: background-size 0.6s var(--slide-easing); transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.35s); }
+    .slide.active .hl-sweep { background-size: 100% 82%; }
+    .u-draw, .strike-draw { position: relative; }
+    .u-draw::after, .strike-draw::after { content: ''; position: absolute; left: 0; width: 100%; transform: scaleX(0); transform-origin: left center; transition: transform 0.6s var(--slide-easing); transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.4s); }
+    .u-draw::after { bottom: -0.06em; height: 0.12em; background: var(--accent); border-radius: 999px; }
+    .strike-draw::after { top: 52%; height: 0.09em; background: var(--text-primary); }
+    .slide.active .u-draw::after, .slide.active .strike-draw::after { transform: scaleX(1); }
+    /* 드로우온(SVG): path/line/circle에 class="draw-on" + pathLength="1" 필수 (stroke 최소 3px) */
+    .draw-on { stroke-dasharray: 1; stroke-dashoffset: 1; transition: stroke-dashoffset 0.7s var(--slide-easing); transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.4s); }
+    .slide.active .draw-on { stroke-dashoffset: 0; }
+    .wipe-reveal { clip-path: inset(0 100% 0 0); transition: clip-path 0.65s var(--slide-easing); transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.2s); }
+    .slide.active .wipe-reveal { clip-path: inset(0 0 0 0); }
+    /* 프로그레스 스윕: 값 A→B (--w0/--off0 = 시작값. 카운터는 data-from) */
+    .hbar-fill--sweep { width: var(--w0, 30%); }
+    .donut-arc--sweep { stroke-dashoffset: var(--off0); }
+    /* 스티커: 레퍼런스/스티커/의 4색 벡터 SVG (design.md §5) — 등장 el--pop, 시선 유도 pulse 권장 */
+    .sticker { display: inline-flex; align-items: center; justify-content: center; width: var(--sw, 240px); }
+    .sticker img, .sticker svg { width: 100%; height: auto; display: block; }
+
+    /* ---------- 타이포 (세로 화면: 줄바꿈 주의, 크게 — 2026-07-02 상향: 화면을 더 꽉 채우도록) ---------- */
+    .section-label { display: inline-block; font-size: clamp(0.8rem, 2.2vw, 1.2rem); letter-spacing: 0.2em; text-transform: uppercase; color: var(--accent-text); font-weight: 700; margin-bottom: 1.4rem; padding: 0.35rem 0.9rem; background: var(--accent-subtle); border-radius: 4px; }
+    .slide h2 { font-size: clamp(1.8rem, 7vw, 4rem); font-weight: 900; letter-spacing: -0.02em; line-height: 1.2; max-width: 16ch; margin-bottom: 1rem; }
+    .impact { font-size: clamp(2.6rem, 11vw, 6.5rem); font-weight: 900; letter-spacing: -0.03em; line-height: 1.1; }
+    .impact em { color: var(--accent); }
+    .sub { font-size: clamp(1.1rem, 3.6vw, 1.9rem); color: var(--text-secondary); line-height: 1.5; max-width: 24ch; }
+
+    /* ---------- 빅 카운터 ---------- */
+    .big-counter { font-size: clamp(4rem, 18vw, 10rem); font-weight: 900; font-variant-numeric: tabular-nums; letter-spacing: -0.04em; color: var(--accent); line-height: 1; }
+    .big-counter-label { font-size: clamp(1.1rem, 3.6vw, 1.8rem); color: var(--text-secondary); font-weight: 600; margin-top: 0.8rem; }
+
+    /* ---------- KPI 세로 스택 ---------- */
+    .kpi-stack { display: flex; flex-direction: column; gap: 1.1rem; width: 100%; max-width: 32rem; }
+    .kpi-card { background: var(--bg-surface); border: 1px solid var(--bg-border); border-radius: 16px; padding: 1.4rem; text-align: center; box-shadow: var(--shadow-card); }
+    .kpi-card--accent { background: var(--bg-page); border-color: var(--accent); box-shadow: var(--shadow-elevated), 0 0 0 1px var(--accent-ring); }
+    .kpi-card .kpi-label { font-size: clamp(0.8rem, 2.4vw, 1rem); letter-spacing: 0.18em; text-transform: uppercase; color: var(--text-tertiary); font-weight: 700; }
+    .kpi-card .kpi-value { font-size: clamp(2.2rem, 9vw, 4.5rem); font-weight: 900; line-height: 1.1; font-variant-numeric: tabular-nums; }
+    .kpi-card--accent .kpi-value { color: var(--accent); }
+
+    /* ---------- 가로 바 (세로 화면 폭에 맞춤) ---------- */
+    .hbar-group { width: 100%; max-width: 32rem; display: flex; flex-direction: column; gap: 1.2rem; }
+    .hbar-row { display: flex; align-items: center; gap: 0.9rem; }
+    .hbar-row .hbar-label { font-size: clamp(1rem, 3.4vw, 1.4rem); font-weight: 700; min-width: 4.5em; text-align: right; }
+    .hbar-track { flex: 1; height: 2.6rem; border-radius: 999px; background: var(--bg-elevated); overflow: hidden; }
+    .hbar-fill { height: 100%; border-radius: 999px; width: 0; transition: width 1s var(--slide-easing) 0.35s; display: flex; align-items: center; justify-content: flex-end; padding-right: 0.8rem; }
+    .hbar-fill .hbar-value { font-size: clamp(0.9rem, 2.8vw, 1.1rem); font-weight: 800; color: #fff; font-variant-numeric: tabular-nums; }
+    .hbar-fill--accent { background: var(--accent); }
+    .hbar-fill--green { background: var(--green); }
+    .hbar-fill--neutral { background: var(--bg-border-strong); }
+    .hbar-fill--neutral .hbar-value { color: var(--text-primary); }
+    .slide.active .hbar-fill { width: var(--w, 60%); }
+
+    /* ---------- 도넛 ---------- */
+    .donut-wrap { position: relative; display: flex; align-items: center; justify-content: center; }
+    .donut-wrap svg { transform: rotate(-90deg); }
+    .donut-track { fill: none; stroke: var(--bg-elevated); }
+    .donut-arc { fill: none; stroke: var(--accent); stroke-linecap: round; stroke-dasharray: var(--circ); stroke-dashoffset: var(--circ); transition: stroke-dashoffset 1.2s var(--slide-easing) 0.35s; }
+    .slide.active .donut-arc { stroke-dashoffset: var(--off); }
+    .donut-center { position: absolute; text-align: center; }
+    .donut-center .donut-value { font-size: clamp(2.4rem, 10vw, 5rem); font-weight: 900; font-variant-numeric: tabular-nums; color: var(--accent); }
+
+    /* ---------- 세로 프로세스/타임라인 ---------- */
+    .vstep-list { display: flex; flex-direction: column; gap: 1.1rem; width: 100%; max-width: 30rem; text-align: left; }
+    .vstep { display: flex; align-items: center; gap: 1.1rem; padding: 1rem 1.3rem; border-radius: 14px; background: var(--bg-surface); border: 1px solid var(--bg-border); }
+    .vstep--active { background: var(--bg-page); border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent-ring); }
+    .vstep .vstep-num { width: 2.6rem; height: 2.6rem; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-weight: 900; font-size: 1.1rem; background: var(--bg-elevated); color: var(--text-secondary); flex-shrink: 0; }
+    .vstep--active .vstep-num { background: var(--accent); color: #fff; }
+    .vstep .vstep-text { font-size: clamp(1.05rem, 3.6vw, 1.65rem); font-weight: 700; }
+    .vstep--done .vstep-num { background: var(--green); color: #fff; }
+
+    /* ---------- Before/After 상하 분할 (레드 금지) ---------- */
+    .ba-stack { display: flex; flex-direction: column; gap: 1.1rem; width: 100%; max-width: 32rem; }
+    .ba-card { border-radius: 16px; padding: 1.3rem 1.5rem; text-align: left; box-shadow: var(--shadow-card); }
+    .ba-card--before { background: var(--bg-surface); border: 1px solid var(--bg-border-strong); }
+    .ba-card--after { background: var(--green-soft); border: 1px solid var(--green-ring); }
+    .ba-label { font-size: 0.85rem; letter-spacing: 0.18em; text-transform: uppercase; font-weight: 800; margin-bottom: 0.5rem; }
+    .ba-card--before .ba-label { color: var(--text-secondary); }
+    .ba-card--after .ba-label { color: var(--green); }
+    .ba-card p { font-size: clamp(1.05rem, 3.6vw, 1.4rem); font-weight: 600; line-height: 1.45; }
+
+    /* ---------- 엔드 CTA (마지막 2초 — 무음 구간) ---------- */
+    .slide--cta { background: radial-gradient(ellipse at 50% 40%, var(--accent-subtle) 0%, transparent 60%), var(--bg-page); }
+    .cta-icons { display: flex; gap: 2.5rem; font-size: clamp(4rem, 16vw, 7rem); margin-bottom: 1.5rem; }
+    .slide--cta .cta-main { font-size: clamp(2.2rem, 9vw, 4rem); font-weight: 900; color: var(--accent-text); line-height: 1.2; }
+    .slide--cta .cta-sub { font-size: clamp(1.4rem, 5.5vw, 2.2rem); font-weight: 700; margin-top: 0.5rem; }
+
+    /* ---------- UI 크롬 ---------- */
+    .chrome { position: fixed; z-index: 10; }
+    .chrome--bottom-right { bottom: 1rem; right: 1rem; font-size: 0.75rem; color: var(--text-tertiary); letter-spacing: 0.08em; }
+    .chrome--bottom-center { bottom: 1rem; left: 50%; transform: translateX(-50%); display: flex; align-items: center; gap: 0.6rem; }
+    .progress-bar { position: fixed; top: 0; left: 0; height: 3px; background: var(--accent); width: 0%; transition: width 0.45s var(--slide-easing); z-index: 11; }
+    .dot-nav { display: flex; gap: 0.35rem; }
+    .dot-nav button { width: 0.45rem; height: 0.45rem; border-radius: 50%; border: 1px solid var(--bg-border-strong); background: transparent; padding: 0; cursor: pointer; }
+    .dot-nav button.is-active { background: var(--accent); border-color: var(--accent); width: 1.1rem; border-radius: 999px; }
+    .counter { font-size: 0.75rem; color: var(--text-tertiary); font-variant-numeric: tabular-nums; }
+    body.fullscreen-mode .chrome, body.fullscreen-mode .progress-bar { display: none; }
+
+    /* ---------- 동기화 녹화 커버 (오토플레이 t=0 마커) ---------- */
+    #sync-cover {
+      position: fixed; inset: 0; z-index: 50; display: none;
+      flex-direction: column; align-items: center; justify-content: center; gap: 1.1rem;
+      background: var(--bg-page); padding: 2rem; text-align: center;
+    }
+    #sync-cover .sync-dot { width: 1rem; height: 1rem; border-radius: 50%; background: var(--accent); }
+    #sync-cover h3 { font-size: clamp(1.3rem, 5vw, 2rem); font-weight: 800; }
+    #sync-cover p { font-size: clamp(0.85rem, 3vw, 1.1rem); color: var(--text-secondary); line-height: 1.8; }
+    @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
+  </style>
+</head>
+<body>
+  <div class="progress-bar" id="progress-bar"></div>
+
+  <!-- 동기화 녹화 커버: A로 대기 → SPACE로 시작. 이 화면이 사라지는 프레임 = 쇼츠 t=0 -->
+  <div id="sync-cover">
+    <div class="sync-dot"></div>
+    <h3>동기화 녹화 대기</h3>
+    <p>화면 녹화를 먼저 시작한 뒤 <strong>SPACE</strong>를 누르세요.<br>
+    SPACE를 누르는 순간이 <strong>쇼츠 타임라인 0초</strong>입니다.<br>
+    ESC 취소 · <code>?start=초</code> 중간 재생</p>
+  </div>
+
+  <div class="chrome chrome--bottom-right">← → SPACE · A 동기화재생 · F</div>
+  <div class="chrome chrome--bottom-center">
+    <div class="dot-nav" id="dot-nav"></div>
+    <div class="counter" id="counter">01 / 02</div>
+  </div>
+
+  <div id="slide-container">
+
+    <!-- 1. 훅 (프레임 0부터 임팩트 — 예시, 실제 슬라이드로 교체) -->
+    <section class="slide" data-slide>
+      <p class="impact slam">훅 문구를<br><em>여기에</em></p>
+      <p class="sub el" style="--i:2; margin-top:1.2rem;">보조 설명</p>
+    </section>
+
+    <!-- 2. 엔드 CTA (마지막 2초, 무음 구간) -->
+    <section class="slide slide--cta" data-slide>
+      <div class="cta-icons">
+        <span class="el el--pop" style="--i:0">👍</span>
+        <span class="el el--pop" style="--i:1">🔔</span>
+      </div>
+      <p class="cta-main el" style="--i:2">구독과 좋아요</p>
+      <p class="cta-sub el" style="--i:3">부탁드립니다 🙏</p>
+    </section>
+
+  </div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll('[data-slide]'));
+    const dotNav = document.getElementById('dot-nav');
+    const counterEl = document.getElementById('counter');
+    const progressBar = document.getElementById('progress-bar');
+    let idx = 0;
+    slides.forEach((_, i) => { const b = document.createElement('button'); b.addEventListener('click', () => go(i)); dotNav.appendChild(b); });
+
+    function animateCounter(el) {
+      const target = parseFloat(el.dataset.target || '0');
+      const from = parseFloat(el.dataset.from || '0'); // 프로그레스 스윕: 시작값 A (기본 0 = 그로우 인)
+      const suffix = el.dataset.suffix || '', prefix = el.dataset.prefix || '';
+      const dur = parseInt(el.dataset.duration || '1000', 10);
+      const t0 = performance.now();
+      (function tick(now) {
+        const p = Math.min((now - t0) / dur, 1);
+        const eased = 1 - Math.pow(1 - p, 3);
+        el.textContent = prefix + Math.round(from + eased * (target - from)).toLocaleString() + suffix;
+        if (p < 1) requestAnimationFrame(tick);
+      })(t0);
+    }
+
+    function go(n) {
+      if (n < 0 || n >= slides.length) return;
+      slides.forEach((s, i) => { s.classList.toggle('active', i === n); s.classList.toggle('prev', i < n); });
+      idx = n;
+      dotNav.querySelectorAll('button').forEach((b, i) => b.classList.toggle('is-active', i === n));
+      counterEl.textContent = String(n + 1).padStart(2, '0') + ' / ' + String(slides.length).padStart(2, '0');
+      progressBar.style.width = ((n + 1) / slides.length * 100) + '%';
+      slides[n].querySelectorAll('[data-counter]').forEach(el => setTimeout(() => animateCounter(el), 300));
+    }
+    // ============ 동기화 오토플레이 (싱크 계약의 핵심) ============
+    // SLIDE_TIMELINE: 타임라인.json·컷지시서와 동일 (t=0 = 쇼츠 타임라인 0초 — 컷 이후 기준)
+    // 항목: { t: 초, s: 슬라이드 인덱스(0부터) }
+    const SLIDE_TIMELINE = [
+      { t: 0.0, s: 0 },
+      { t: 4.8, s: 1 },
+    ];
+
+    const auto = { armed: false, running: false, raf: null, offset: 0 };
+    const cover = document.getElementById('sync-cover');
+
+    function armAutoplay() {
+      auto.armed = true;
+      auto.offset = Math.max(0, parseFloat(new URLSearchParams(location.search).get('start') || '0') || 0);
+      cover.style.display = 'flex';
+    }
+    function cancelAutoplay() {
+      auto.armed = false; auto.running = false;
+      if (auto.raf) cancelAnimationFrame(auto.raf);
+      cover.style.display = 'none';
+    }
+    function startAutoplay() {
+      cover.style.display = 'none';
+      auto.running = true;
+      const t0 = performance.now() - auto.offset * 1000;
+      let applied = -1;
+      while (applied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[applied + 1].t <= auto.offset) {
+        applied++; if (idx !== SLIDE_TIMELINE[applied].s) go(SLIDE_TIMELINE[applied].s);
+      }
+      function tick(now) {
+        if (!auto.running) return;
+        const t = (now - t0) / 1000;
+        while (applied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[applied + 1].t <= t) {
+          applied++; go(SLIDE_TIMELINE[applied].s);
+        }
+        if (applied < SLIDE_TIMELINE.length - 1) auto.raf = requestAnimationFrame(tick);
+        else { auto.running = false; auto.armed = false; }
+      }
+      auto.raf = requestAnimationFrame(tick);
+    }
+
+    document.addEventListener('keydown', (e) => {
+      if (auto.armed && !auto.running) {
+        if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); startAutoplay(); return; }
+        if (e.key === 'Escape') { e.preventDefault(); cancelAutoplay(); return; }
+        return;
+      }
+      if (auto.running) {
+        if (e.key === 'Escape') { e.preventDefault(); cancelAutoplay(); }
+        return; // 오토플레이 중 수동 조작 차단 (싱크 보호)
+      }
+      if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); go(idx + 1); }
+      else if (e.key === 'ArrowLeft') { e.preventDefault(); go(idx - 1); }
+      else if (e.key.toLowerCase() === 'a') { e.preventDefault(); armAutoplay(); }
+      else if (e.key.toLowerCase() === 'f') { if (!document.fullscreenElement) document.documentElement.requestFullscreen(); else document.exitFullscreen(); }
+    });
+    document.addEventListener('fullscreenchange', () => document.body.classList.toggle('fullscreen-mode', !!document.fullscreenElement));
+
+    // ============ 캡처 모드 (?capture=1 — 헤드리스 자동 녹화용, scripts/capture_slides.py) ============
+    // 크롬 UI 숨김 + 커버를 순수 검정으로 전환(녹화 후 blackdetect로 t=0 프레임 검출) + 외부 시작 트리거 노출
+    if (new URLSearchParams(location.search).get('capture') === '1') {
+      document.body.classList.add('fullscreen-mode');
+      cover.style.background = '#000';
+      Array.from(cover.children).forEach(el => el.style.display = 'none');
+      armAutoplay();
+      // seek(t): 외부(capture_slides.py)가 프레임마다 호출 — 시계 없이 덱 상태를 직접 구동.
+      // 가상시간 + BeginFrame 제어 환경에서 rAF 시계가 어긋나도 타임라인이 정확히 적용된다.
+      let seekApplied = -1;
+      window.__capture = {
+        ready: false,
+        start: startAutoplay,
+        seek(t) {
+          cover.style.display = 'none';
+          while (seekApplied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[seekApplied + 1].t <= t) {
+            seekApplied++; if (idx !== SLIDE_TIMELINE[seekApplied].s) go(SLIDE_TIMELINE[seekApplied].s);
+          }
+        },
+      };
+      document.fonts.ready.then(() => setTimeout(() => { window.__capture.ready = true; }, 500));
+    }
+    go(0);
+  </script>
+</body>
+</html>
