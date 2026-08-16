@@ -253,7 +253,8 @@ def _build_ass(srt: pathlib.Path, overlays: list, kind: str = "main") -> tuple[s
     반환: (ass_text, 전체 컷 수, 흰색 컷 수)."""
     (resx, resy), fontname, fontsize, margin_lr, margin_v = _ass_params(kind)
     # 오버레이 구간(초) — assemble_capcut.py: on_overlay = any(start < oe and end > os)
-    ov_ranges = [(float(o["start"]), float(o["end"])) for o in overlays]
+    #  style=whiteboard(흰 배경 드로잉)는 제외 — 자막 잉크색 유지 (assemble_capcut.py와 동일)
+    ov_ranges = [(float(o["start"]), float(o["end"])) for o in overlays if o.get("style") != "whiteboard"]
 
     header = [
         "[Script Info]",

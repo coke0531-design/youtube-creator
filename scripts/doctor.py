@@ -40,7 +40,7 @@ def main() -> None:
     req = ROOT / "requirements.txt"
     pins = dict(re.findall(r"^([A-Za-z0-9_-]+)==([^\s#]+)", req.read_text(encoding="utf-8"), re.M)) \
         if req.is_file() else {}
-    for pkg in ("pycapcut", "playwright", "imageio-ffmpeg"):
+    for pkg in ("pycapcut", "playwright", "imageio-ffmpeg", "opencv-python-headless", "numpy"):
         try:
             ver = md.version(pkg)
             pinned = pins.get(pkg)

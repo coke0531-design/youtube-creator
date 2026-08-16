@@ -238,8 +238,9 @@ def main() -> None:
     #    그대로 유지하고 색만 바꾼다(기본 색은 흰색이라 흰 배경에서 안 보임). 폰트 미세조정은 CapCut에서.
     #    오버레이가 있으면 겹치는 컷만 흰색으로 — 실사 영상 위 가독성 (풀링_011 방식).
     if overlays:
+        # style=whiteboard(화이트보드 드로잉, 흰 배경)는 자막을 잉크색 그대로 둔다 — 흰 글자가 안 보임
         overlay_ranges = [(int(round(o["start"] * 1_000_000)), int(round(o["end"] * 1_000_000)))
-                          for o in overlays]
+                          for o in overlays if o.get("style") != "whiteboard"]
         ink_style = cc.TextStyle(size=5, align=1, auto_wrapping=True, color=CAPTION_COLOR)
         white_style = cc.TextStyle(size=5, align=1, auto_wrapping=True, color=CAPTION_OVERLAY_COLOR)
         caption_clip = cc.ClipSettings(transform_y=CAPTION_Y[kind])

@@ -4,3 +4,6 @@
 pycapcut==0.0.3
 playwright==1.57.0
 imageio-ffmpeg==0.6.0
+# 화이트보드 드로잉(scripts/whiteboard/, 선택 연출) — 2026-08-16 검증
+opencv-python-headless==5.0.0.93
+numpy==2.3.5

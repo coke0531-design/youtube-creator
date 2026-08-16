@@ -155,6 +155,7 @@ const COLORS = {
 | 와이프 리빌 (wipe reveal) | `.wipe-reveal` | 마스크(clip-path)가 지나가며 요소가 드러남 | 타이틀/이미지 극적 등장 (Lottie y1의 CSS 범용판) | 0.65s |
 | 크로스 디졸브 (cross dissolve) | 슬라이드 전환 기본값 | 앞 슬라이드가 겹쳐 사라지며 다음이 등장 | 모든 슬라이드 전환 (별도 지시 불필요) | 0.45s |
 | 키네틱 타이포그래피 (kinetic typography) | `slam`(9:16) / `grow-scale`+히어로 조합 | 글자 자체가 움직이는 연출 | 🔒 **게이트: 히어로/훅 슬라이드 한정, 영상당 1~2회** — 미니멀 무드 오염 방지 | 0.35~0.85s |
+| 화이트보드 드로잉 (whiteboard draw) | `scripts/render_whiteboard.py` → 오버레이 `wb<n>.mp4`(`style: "whiteboard"`) | 흰 화면 위에 손+마커가 4색 선화를 **순서대로 그려 나감**(구역별 잉크→채색). 슬라이드 위 오버레이 트랙에 얹힘 | 스토리·비유·개념 설명 등 **수치 없는 대목**. 🔒 **게이트: 영상당 1~3장면, 한 장면 8~30초, 데이터·비교·프로세스에는 쓰지 않음**(그건 차트·카드가 더 낫다). 장면 규칙 = `템플릿/whiteboard/README.md` (2026-08-16 신설, 실측 판단 전 — 별로면 `scripts/whiteboard/README.md` 롤백) | 구간 길이 그대로 |
 
 - 모든 등장은 **순차(스태거)**, 동시 등장 금지.
 - scale 바운스는 0.88~1.08 범위.
@@ -240,4 +241,5 @@ const COLORS = {
 | 16:9 영상 소스 슬라이드 | 영상 소스 모드 (§2-3) | `.claude/skills/youtube-editor/` | `템플릿/presentation-16x9.html` |
 | 9:16 쇼츠 소스 슬라이드 | 영상 소스 모드 (§2-3) | `.claude/skills/youtube-short-generator/` | `템플릿/presentation-9x16.html` |
 | 썸네일 | 썸네일 모드 (§2-4) | youtube-editor `SKILL.md` Step 9-2 (배경 이미지 프롬프트) | — |
+| 화이트보드 드로잉 장면 (16:9 오버레이) | 영상 소스 모드 (§2-3) — 흰 배경·4색 선화 | youtube-editor `SKILL.md` Step 6.6 + `템플릿/whiteboard/README.md` | `템플릿/whiteboard/scene-example.svg` |
 | 프레젠테이션(영상 외 용도) | 라이트 기본 + 다크 토글 (§2-1, §2-2) | 원본 레퍼런스 HTML 3종 | — |

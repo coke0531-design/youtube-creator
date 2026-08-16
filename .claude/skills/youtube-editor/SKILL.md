@@ -251,7 +251,7 @@ python scripts/split_captions.py "결과물/<작업>/03_자막/full.srt" --check
 }
 ```
 
-`video_overlays`(선택 — 오버레이 모드에서만): `n`=오버레이 번호(ov<n>.mp4), `src`=사용자 원본(작업 루트 기준 상대경로), `start`/`end`=**오디오 타임베이스**의 배치 구간(초), `src_dur`=원본 길이(encode_overlays.py가 실측으로 갱신), `label`=내용 한 줄.
+`video_overlays`(선택 — 오버레이 모드에서만): `n`=오버레이 번호(ov<n>.mp4), `src`=사용자 원본(작업 루트 기준 상대경로), `start`/`end`=**오디오 타임베이스**의 배치 구간(초), `src_dur`=원본 길이(encode_overlays.py가 실측으로 갱신), `label`=내용 한 줄. `style`(선택)=`"whiteboard"`면 화이트보드 드로잉 클립(Step 6.6) — 흰 배경이라 겹치는 자막을 흰색으로 바꾸지 않고 잉크색 유지(assemble_capcut.py·render_final.py 공통). 실사 오버레이는 `style` 생략.
 
 ### 영상 소스 오버레이 (사용자 제공 시연/실사 영상) — 오버레이 모드
 
@@ -262,6 +262,18 @@ python scripts/split_captions.py "결과물/<작업>/03_자막/full.srt" --check
 3. **배속 인코딩 (Step 6.5)** — `python scripts/encode_overlays.py <타임라인.json>`: 컷 없이 **배속만**으로 구간 길이에 맞춘다(화면 녹화는 액션 흐름이 나레이션과 이미 일치). 화면비 보존 + 1920x1080 흰 패딩 + 무음. 배속 가드 0.5~2.0×(밖이면 구간 배정 오류 의심 — 중단).
 4. **조립 (Step 8)** — assemble_capcut.py가 `video_overlays`를 자동 인식해 4트랙(나레이션/슬라이드/영상소스/자막)으로 조립하고, **오버레이와 겹치는 자막 컷만 흰색**(실사 위 가독성), 나머지는 잉크색으로 넣는다.
 5. **편집지시서** — 오버레이 표를 추가한다: 영상 | 구간(오디오) | 구간 길이 | 원본 길이 | 배속 | 내용. 폴백 슬라이드 관계도 명시(풀링_011 편집지시서 형식).
+
+### Step 6.6: 화이트보드 드로잉 장면 (선택 연출 — 2026-08-16 신설, 실측 판단 전)
+
+스토리·비유·개념 설명처럼 **수치가 없는 대목**에서, 슬라이드 위에 "손+마커가 4색 선화를 순서대로 그려 나가는" 클립을 얹는다(design.md §4 렉시콘 "화이트보드 드로잉"). 렌더 엔진은 `scripts/whiteboard/`(geeklee/srt-whiteboard-animation vendoring, MIT), 장면 규칙·프롬프트는 `템플릿/whiteboard/README.md`. **기본은 미사용** — 결정 트리에서 해당 대목이 있을 때만, 🔒 영상당 1~3장면·장면당 8~30초.
+
+1. **장면 고르기 (Step 4에서)** — 슬라이드 분해 때 후보 대목을 표시하고, 그 아래에는 **폴백 슬라이드**를 그대로 만든다(오버레이 규칙과 동일 — 클립을 빼도 화면이 비지 않는다). 구간 `[start, end]`는 transcript 실측으로 슬라이드 경계에 맞춘다.
+2. **장면 SVG 작성** — `템플릿/whiteboard/scene-example.svg`를 `04_영상소스/wb-scenes/wb<n>.svg`로 복사해 그린다. 규칙(흰 배경·4색·글자 없음·하단 21% 비움·`data-wb="N"` 순서·선택 `data-wb-t`)은 README 그대로. 복잡한 장면은 외부 이미지 생성 PNG + `--annotation`/`--auto`(README의 프롬프트 골격).
+3. **렌더** — `python scripts/render_whiteboard.py 04_영상소스/wb-scenes/wb<n>.svg --out 04_영상소스/wb<n>.mp4 --duration <end-start>` → 1920x1080·30fps·무음·정확한 길이. 하단 안전 영역에 잉크가 있으면 중단(fail-loud). 소요 ≈ 클립 길이 × 9.
+4. **타임라인 등록** — `video_overlays[]`에 `{ "n", "src": "04_영상소스/wb<n>.mp4", "style": "whiteboard", "start", "end", "label" }` 추가(실사 오버레이와 같은 배열, n은 통합 번호). 이후는 오버레이 모드와 동일: `encode_overlays.py`(배속 1.000× — 아니면 duration 오기입) → Step 7 캡처 → Step 8 조립(자막은 잉크색 유지).
+5. **편집지시서** — 오버레이 표에 `종류=화이트보드` 열로 함께 기재하고, 장면이 어떤 대본 문장을 그리는지 한 줄 적는다.
+
+실측 판단 기준(오너): 완성본에서 ① 그려지는 속도가 나레이션과 맞는가 ② 흰 배경 슬라이드와 이질감이 없는가 ③ 손 자산이 어색하지 않은가. 별로면 `scripts/whiteboard/README.md` 롤백 절차(태그 `pre-whiteboard-2026-08-16`).
 
 ### Step 7: 헤드리스 캡처 (HTML → capture.mp4)
 
@@ -419,6 +431,7 @@ python scripts/stage_capcut_kit.py "결과물/<작업>/타임라인.json"
 ├─ 구조/관계?      → Mermaid(CDN) 다이어그램 또는 SVG 노드맵
 ├─ 인용/발언?      → quote-block (+ 인물 사진)
 ├─ 감정/리액션/질문? → 스티커(레퍼런스/스티커/ 먼저 스캔 — 없으면 제작 후 등재) 또는 큰 SVG 아이콘 (460px+)
+├─ 스토리/비유/개념 설명(수치 없음)? → 화이트보드 드로잉 (Step 6.6 — 🔒 영상당 1~3장면) 또는 큰 SVG 장면 그림
 └─ 해당 없음?      → SVG 기본 도형 (원/화살표/느낌표) + 라벨
 ```
 
@@ -456,6 +469,7 @@ python scripts/analyze_motion.py "레퍼런스.mp4" --scene 0.2   # 컷이 덜 �
 - [ ] **scripts/check_caption_safe.py 통과** — 전 슬라이드·스테이지 자막 안전 영역(하단 21vh) 침범 0 (캡처가 자동 게이트, 육안 가정 금지)
 - [ ] capture.mp4 — 헤드리스 캡처 (길이 = 타임라인 duration, 30fps, 첫 프레임 = 첫 슬라이드, 해상도 2560x1440)
 - [ ] (오버레이 모드) ov<n>.mp4 전부 생성(encode_overlays.py) — 배속 0.5~2.0×, video_overlays가 편집지시서 오버레이 표와 일치, 오버레이 밑 폴백 슬라이드 존재
+- [ ] (화이트보드 장면 사용 시) wb<n>.mp4 길이 = 구간 길이(배속 1.000×), `style: "whiteboard"` 기재, 장면 SVG가 `04_영상소스/wb-scenes/`에 보존, 영상당 3장면 이하
 - [ ] CapCut 드래프트 — 3트랙(오버레이 있으면 4트랙) 조립 완료, 사용자에게 검수·내보내기 안내
 - [ ] 캡컷 조립 재료/ — stage_capcut_kit.py 실행, 조립 필요 파일 전부 존재(오디오·SRT·capture·ov*·편집지시서·타임라인)
 - [ ] 01_대본/ 대본 끝에 '영상 요약'(영상 설명/챕터) 섹션 추가 — **첫 줄 고정 해시태그 4개(변경 금지)**, 첫 챕터 00:00, 챕터 시간이 타임라인.json과 일치, 레퍼런스 '콘텐츠 정리' 형식
