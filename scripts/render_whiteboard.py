@@ -56,6 +56,7 @@ for _s in (sys.stdout, sys.stderr):
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "scripts" / "whiteboard" / "render_stream_whiteboard.py"
+DISABLED_MARKER = ROOT / "scripts" / "whiteboard" / "DISABLED"   # 있으면 연출 비활성(오너 결정) — 전환 절차: scripts/whiteboard/README.md
 DEFAULT_HAND = ROOT / "템플릿" / "whiteboard" / "hand-marker-amber-top.png"   # 위에서 내려오는 손(펜촉 좌하단) — 자막 안 가림
 HAND_TIP_ANCHOR = {"hand-marker-amber-top.png": "0,1", "hand-marker-amber.png": "0,0"}   # 자산별 펜촉 위치(정규화)
 W, H = 1920, 1080
@@ -251,6 +252,9 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true", help="구역 일정·속도 진단표만 출력하고 렌더하지 않는다")
     args = ap.parse_args()
 
+    if DISABLED_MARKER.is_file():
+        sys.exit("[비활성] 화이트보드 드로잉 연출은 현재 꺼져 있습니다(오너 결정 2026-08-16). "
+                 f"다시 켜려면 {DISABLED_MARKER} 삭제 + scripts/whiteboard/README.md '활성/비활성 전환' 절차.")
     if not ENGINE.is_file():
         sys.exit(f"[오류] 렌더 엔진 없음: {ENGINE}")
     if args.duration <= 0:

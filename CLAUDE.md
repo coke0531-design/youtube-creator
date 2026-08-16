@@ -28,7 +28,7 @@
 2. **동일 타임베이스** — 3자료는 t=0(음성 시작, 쇼츠는 첫 컷 시작)을 공유한다. 영상 소스에는 transcript 기준 `SLIDE_TIMELINE`을 임베드해 **캡처 모드**(`?capture=1`, `scripts/capture_slides.py` 헤드리스 통녹화)로 캡처하면 자막·음성과 싱크가 일치한다 (수동 폴백: A → SPACE 화면 녹화).
 3. **기계용 동기화 데이터** — 편집지시서/컷지시서(사람용)와 함께 `타임라인.json`(슬라이드 타임코드 + 쇼츠 audio_cuts + 선택 `video_overlays`)을 항상 생성한다. SRT·SLIDE_TIMELINE·타임라인.json의 타임코드는 값이 일치해야 하며(불일치 = 싱크 깨짐), 이 일치는 **`scripts/validate_pipeline.py`가 기계 검증**한다 — 캡처·조립 스크립트가 시작 시 자동 실행하고 위반이면 중단(fail-loud).
 4. **영상 소스 오버레이(선택)** — 사용자 제공 시연/실사 영상(`영상 소스/N.mp4`)은 transcript 실측으로 구간을 확정하고(`video_overlays`), `scripts/encode_overlays.py`가 컷 없이 **배속만**으로 구간 길이에 맞춰 `ov<n>.mp4`를 만든 뒤, 조립(assemble_capcut.py)이 슬라이드 위 별도 트랙에 얹는다(겹치는 자막은 흰색). 오디오·자막 타임코드는 불변.
-5. **화이트보드 드로잉 장면(선택 연출, 2026-08-16 신설·실측 판단 전)** — 수치 없는 스토리·비유 대목에 한해 `scripts/render_whiteboard.py`로 4색 선화가 그려지는 클립(`wb<n>.mp4`)을 만들어 같은 오버레이 트랙에 `style: "whiteboard"`로 얹는다(자막은 잉크색 유지). 🔒 영상당 1~3장면. 규칙 = design.md §4 렉시콘 + `템플릿/whiteboard/README.md`, 롤백 = `scripts/whiteboard/README.md`.
+5. ⏸ **화이트보드 드로잉 장면 — 비활성(2026-08-16 오너 결정, 제안·사용 금지; 켜는 법 = `scripts/whiteboard/README.md`)**. 켜져 있을 때의 규칙: 수치 없는 스토리·비유 대목에 한해 `scripts/render_whiteboard.py`로 4색 선화가 그려지는 클립(`wb<n>.mp4`)을 만들어 같은 오버레이 트랙에 `style: "whiteboard"`로 얹는다(자막은 잉크색 유지). 🔒 영상당 1~3장면. 규칙 = design.md §4 렉시콘 + `템플릿/whiteboard/README.md`, 롤백 = `scripts/whiteboard/README.md`.
 
 ## 결과물 폴더 규약 (모든 산출물의 저장 위치)
 

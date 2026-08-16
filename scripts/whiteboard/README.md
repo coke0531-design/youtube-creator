@@ -14,7 +14,14 @@
 
 **업스트림 갱신 시**: 위 개작 3곳만 다시 적용하고 `python scripts/render_whiteboard.py 템플릿/whiteboard/scene-example.svg --out <tmp>/wb1.mp4 --duration 10` 스모크(1920x1080·10.00s)로 확인.
 
-## 롤백 절차 (실측 결과가 별로면 되돌리기)
+## 활성/비활성 전환 (현재: ⏸ 비활성 — 2026-08-16 오너 결정)
+
+스위치는 마커 파일 **`scripts/whiteboard/DISABLED`** 하나다. 있으면 `render_whiteboard.py`가 실행을 거부하고, 문서 3곳(design.md §4 렉시콘 행 · youtube-editor SKILL Step 6.6/결정 트리 · CLAUDE.md 싱크 계약 5)에 ⏸ 표기가 있어 AI가 이 연출을 제안하지 않는다. 코드·템플릿·풀링013 테스트 장면(`04_영상소스/wb-scenes/`)은 그대로 보존된다.
+
+- **다시 켜기**: ① `DISABLED` 삭제 ② 위 문서 3곳(+슬라이드-디자인.md 결정 트리)의 "⏸ … 비활성" 문구를 제거하고 원래 문장으로 ③ `python scripts/render_whiteboard.py 템플릿/whiteboard/scene-example.svg --out <tmp>/wb.mp4 --duration 10 --dry-run` 스모크.
+- **다시 끄기**: `DISABLED` 파일 생성 + 문서 3곳에 ⏸ 표기.
+
+## 롤백 절차 (코드까지 걷어내기)
 
 도입 직전 상태에 태그가 있다: **`pre-whiteboard-2026-08-16`**. 도입은 단일 커밋(`feat(whiteboard): …`)이라 되돌리기는 한 줄이다.
 

@@ -155,7 +155,7 @@ const COLORS = {
 | 와이프 리빌 (wipe reveal) | `.wipe-reveal` | 마스크(clip-path)가 지나가며 요소가 드러남 | 타이틀/이미지 극적 등장 (Lottie y1의 CSS 범용판) | 0.65s |
 | 크로스 디졸브 (cross dissolve) | 슬라이드 전환 기본값 | 앞 슬라이드가 겹쳐 사라지며 다음이 등장 | 모든 슬라이드 전환 (별도 지시 불필요) | 0.45s |
 | 키네틱 타이포그래피 (kinetic typography) | `slam`(9:16) / `grow-scale`+히어로 조합 | 글자 자체가 움직이는 연출 | 🔒 **게이트: 히어로/훅 슬라이드 한정, 영상당 1~2회** — 미니멀 무드 오염 방지 | 0.35~0.85s |
-| 화이트보드 드로잉 (whiteboard draw) | `scripts/render_whiteboard.py` → 오버레이 `wb<n>.mp4`(`style: "whiteboard"`) | 흰 화면 위에 손+마커가 4색 선화를 **순서대로 그려 나감**(구역별 잉크→채색). 슬라이드 위 오버레이 트랙에 얹힘 | 스토리·비유·개념 설명 등 **수치 없는 대목**. 🔒 **게이트: 영상당 1~3장면, 한 장면 8~30초, 데이터·비교·프로세스에는 쓰지 않음**(그건 차트·카드가 더 낫다). 장면 규칙 = `템플릿/whiteboard/README.md` (2026-08-16 신설, 실측 판단 전 — 별로면 `scripts/whiteboard/README.md` 롤백) | 구간 길이 그대로 |
+| ⏸ 화이트보드 드로잉 (whiteboard draw) — **비활성(2026-08-16 오너 결정, 제안·사용 금지. 켜는 법 = `scripts/whiteboard/README.md`)** | `scripts/render_whiteboard.py` → 오버레이 `wb<n>.mp4`(`style: "whiteboard"`) | 흰 화면 위에 손+마커가 4색 선화를 **순서대로 그려 나감**(구역별 잉크→채색). 슬라이드 위 오버레이 트랙에 얹힘 | 스토리·비유·개념 설명 등 **수치 없는 대목**. 🔒 **게이트: 영상당 1~3장면, 한 장면 8~30초, 데이터·비교·프로세스에는 쓰지 않음**(그건 차트·카드가 더 낫다). 장면 규칙 = `템플릿/whiteboard/README.md` (2026-08-16 신설, 실측 판단 전 — 별로면 `scripts/whiteboard/README.md` 롤백) | 구간 길이 그대로 |
 
 - 모든 등장은 **순차(스태거)**, 동시 등장 금지.
 - scale 바운스는 0.88~1.08 범위.
