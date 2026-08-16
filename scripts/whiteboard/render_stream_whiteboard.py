@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # Vendored from geeklee/srt-whiteboard-animation (MIT, commit 696a724, 2026-07-28)
 # 원본: https://github.com/geeklee/srt-whiteboard-animation — 라이선스: LICENSE.srt-whiteboard-animation
-# youtube-creator 개작(2026-08-16): stdout UTF-8 강제(cp949 함정), --canvas(배경색) 노출.
+# youtube-creator 개작(2026-08-16): stdout UTF-8 강제(cp949 함정), --canvas(배경색)·--hand-height(손 크기)·--tip-anchor(펜촉 앵커) 노출.
 # 사용자는 이 파일을 직접 부르지 않는다 — scripts/render_whiteboard.py(래퍼)가 호출한다.
 """
 SRT 白板动画 - 整合渲染器（mask 编排 + stream 画法）
@@ -481,6 +481,8 @@ def _parse_args(argv=None):
     p.add_argument("--fps", type=int, default=None)
     p.add_argument("--grid-edge", type=int, default=None)
     p.add_argument("--brush-radius", type=int, default=None)
+    p.add_argument("--tip-anchor", default=None, help="笔尖锚点 'x,y' (0..1, 素材内归一化坐标; 기본 0,0=좌상단)")
+    p.add_argument("--hand-height", type=int, default=None, help="手部素材目标高度 px（youtube-creator: 자막 가림 방지용 축소）")
     p.add_argument("--canvas", default=None, help="画布底色 hex（youtube-creator: 영상 소스는 #ffffff 고정）")
     p.add_argument("--cap-long-edge", type=int, default=None,
                    help="输出长边像素上限（预览可调小加速，默认 1080）")
@@ -499,6 +501,11 @@ def _build_cfg(args) -> sr.Config:
         kw["cap_long_edge"] = args.cap_long_edge
     if args.canvas:
         kw["canvas_hex"] = args.canvas
+    if args.hand_height:
+        kw["target_hand_height"] = args.hand_height
+    if args.tip_anchor:
+        ax, ay = (float(v) for v in args.tip_anchor.split(","))
+        kw["tip_anchor_x"], kw["tip_anchor_y"] = ax, ay
     kw["ink_path_mode"] = args.ink_path
     kw["color_fill"] = args.color_fill
     kw["pause_mode"] = args.pause

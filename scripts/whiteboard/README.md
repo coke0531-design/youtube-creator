@@ -4,7 +4,7 @@
 **가져온 것**: `stream_render.py`(연속 필기 엔진) + `render_stream_whiteboard.py`(구역 마스크 편성 + 필기 렌더). 나머지(SRT 분할·프리뷰 HTML·손 이미지·예제·Codex 메타)는 가져오지 않았다 — 우리 파이프라인(transcript 실측·타임라인.json)이 그 역할을 이미 한다.
 **개작(2026-08-16, 원본 대비 diff 최소)**:
 - stdout/stderr UTF-8 강제(Windows cp949에서 중국어 로그 출력 시 크래시).
-- `--canvas` 옵션 노출(배경색; 우리는 `#ffffff` 고정 — 원본 기본값은 미색 `#F6F1E3`).
+- `--canvas`(배경색; 우리는 `#ffffff` 고정 — 원본 기본값은 미색 `#F6F1E3`)·`--hand-height`(손 크기 — 자막 가림 방지) 옵션 노출.
 - 절차적 펜촉(손 자산 없을 때 폴백) 색을 앰버 `#F59E0B`로.
 - 원본 손 이미지(`drawing-hand.png`)는 **원 저작자 브랜드 문구가 펜에 인쇄돼 있어 제외**. 우리 손 자산 = `템플릿/whiteboard/hand-marker-amber.svg/.png`(4색 벡터, 자체 제작).
 

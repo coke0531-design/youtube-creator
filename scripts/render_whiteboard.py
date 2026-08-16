@@ -12,14 +12,27 @@
      클립 시작 기준 그 초에 그리기 시작(transcript 실측값으로 나레이션과 맞춤). 없으면 균등 배분.
   B) PNG 선화(외부 이미지 생성) — --annotation <json>(원 도구 포맷) 또는 --auto(그림 전체 1구역).
 
+속도 모델(녹음 속도와 맞추는 법):
+  엔진은 각 구역의 선 길이를 그 구역에 배정된 시간(durationMs)에 정확히 맞춰 그린다 — 시간이 짧으면 빨리,
+  길면 천천히(탄력적). 그래서 클립 총길이는 항상 나레이션 구간과 같고, "그리는 속도"만 배정 시간에 따라 달라진다.
+  ① 기본: 구역 시간 = 클립 길이를 면적(√)×data-wb-w 가중으로 배분 → 대략 균등.
+  ② 정밀: 각 구역에 data-wb-t(클립 시작 기준 초, transcript 실측)를 주면 그 문장이 시작될 때 그리기 시작한다.
+  ③ 진단: 렌더 전에 구역별 [시작~끝, 잉크 px/s]를 표로 찍는다. px/s가 너무 낮으면(펜이 기어감) 구역을 합치거나
+     선을 더 넣고, 너무 높으면(순식간에 그려짐) 구역을 쪼개거나 선을 줄인다. 참고 밴드 3k~30k px/s(경고만, 중단 안 함).
+  ④ 내용은 적은데 문장이 긴 구역: data-wb-d="1.2"(최대 그리기 초) → 1.2초에 그리고 다음 구역 시각까지 멈춘다.
+  ⑤ --tail: 다 그린 뒤 완성 그림을 보여주는 여유(기본 0.6s). --pause: 엔진 '숨 고르기' 강도(heavy/auto/light/off).
+
 계약(fail-loud):
   - 출력은 1920x1080·30fps·무음·정확히 --duration 초(오버레이 구간 길이) → encode_overlays.py에서 배속 1.0×.
   - 배경은 흰색(#ffffff) 고정. 하단 21%(자막 안전 영역)에 잉크가 있으면 중단(--allow-bottom으로만 강행).
-  - 손 자산은 템플릿/whiteboard/hand-marker-amber.png(우리 것). --hand none 이면 펜 없이 그린다.
+  - 손 자산 기본 = 템플릿/whiteboard/hand-marker-amber-top.png(위에서 내려오는 손, 펜촉 좌하단) — 손이 펜촉 '위'로 뻗어
+    하단 자막을 덮지 않는다. hand-marker-amber.png(아래에서 올라오는 손)도 선택 가능하나 하단 근처를 그릴 때 자막을 가린다.
+    --hand none 이면 펜 없이. 크기 --hand-height(기본 400px).
 
 사용:
   python scripts/render_whiteboard.py <scene.svg|scene.png> --out "결과물/<작업>/04_영상소스/wb1.mp4" --duration 12.4
   옵션: --annotation <json> | --auto | --hand <png|none> | --fps 30 | --allow-bottom | --keep-png | --ink-path grid|skeleton
+        --tail 0.6 | --pause heavy|auto|light|off | --dry-run(진단표만 출력, 렌더 안 함)
 """
 import argparse
 import json
@@ -36,11 +49,13 @@ for _s in (sys.stdout, sys.stderr):
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 ENGINE = ROOT / "scripts" / "whiteboard" / "render_stream_whiteboard.py"
-DEFAULT_HAND = ROOT / "템플릿" / "whiteboard" / "hand-marker-amber.png"
+DEFAULT_HAND = ROOT / "템플릿" / "whiteboard" / "hand-marker-amber-top.png"   # 위에서 내려오는 손(펜촉 좌하단) — 자막 안 가림
+HAND_TIP_ANCHOR = {"hand-marker-amber-top.png": "0,1", "hand-marker-amber.png": "0,0"}   # 자산별 펜촉 위치(정규화)
 W, H = 1920, 1080
 BOTTOM_SAFE_RATIO = 0.21        # 자막 안전 영역(자막-안전영역.md: 하단 230px/1080)
 BOTTOM_INK_TOL = 0.003          # 안전 영역 내 잉크 픽셀 비율 허용치
-TAIL_GAZE_MS = 600              # 다 그린 뒤 완성 그림을 보여주는 여유
+TAIL_GAZE_MS = 600              # 다 그린 뒤 완성 그림을 보여주는 여유(기본 — --tail로 조절)
+PACE_MIN, PACE_MAX = 3000, 30000  # 구역별 잉크 px/s 참고 밴드(밖이면 경고)
 BREATH_MS = 150                 # 구역 사이 호흡
 _TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
 
@@ -69,6 +84,8 @@ _JS_GROUPS = """
 () => Array.from(document.querySelectorAll('[data-wb]')).map(el => {
   const r = el.getBoundingClientRect();
   return { id: el.id || null, seq: Number(el.dataset.wb), t: el.dataset.wbT ? Number(el.dataset.wbT) : null,
+           w8: el.dataset.wbW ? Number(el.dataset.wbW) : 1,
+           d: el.dataset.wbD ? Number(el.dataset.wbD) : null,
            label: el.dataset.wbLabel || el.id || ('구역 ' + el.dataset.wb),
            x: r.left, y: r.top, w: r.width, h: r.height };
 })"""
@@ -89,8 +106,8 @@ def svg_to_png(svg: pathlib.Path, png: pathlib.Path):
     return groups
 
 
-def auto_annotation(groups: list, total_ms: int, scene_id: str, pad: int = 14) -> dict:
-    """[data-wb] 그룹 bbox → 원 도구 annotation. 시작 시각은 data-wb-t(초) 우선, 없으면 균등 배분."""
+def auto_annotation(groups: list, total_ms: int, scene_id: str, pad: int = 14, tail_ms: int = TAIL_GAZE_MS) -> dict:
+    """[data-wb] 그룹 bbox → 원 도구 annotation. 시작 시각은 data-wb-t(초) 우선, 없으면 면적(√)×data-wb-w 배분."""
     if not groups:
         # 그룹 표기가 없으면 그림 전체를 한 구역으로 — 그려지는 순서는 엔진(grid/skeleton)이 정한다
         groups = [{"id": "all", "seq": 1, "t": None, "label": "전체", "x": 0, "y": 0, "w": W, "h": H}]
@@ -98,7 +115,7 @@ def auto_annotation(groups: list, total_ms: int, scene_id: str, pad: int = 14) -
     seqs = [g["seq"] for g in groups]
     if len(set(seqs)) != len(seqs):
         sys.exit(f"[오류] data-wb 순번 중복: {seqs}")
-    draw_ms = max(1000, total_ms - TAIL_GAZE_MS)
+    draw_ms = max(1000, total_ms - tail_ms)
     n = len(groups)
     if any(g["t"] is not None for g in groups):
         if any(g["t"] is None for g in groups):
@@ -109,7 +126,7 @@ def auto_annotation(groups: list, total_ms: int, scene_id: str, pad: int = 14) -
         ends = starts[1:] + [draw_ms]
     else:
         # 면적(√)에 비례해 시간 배분 — 큰 그림이 더 오래 그려지되 극단은 완화
-        weights = [max(1.0, (g["w"] * g["h"]) ** 0.5) for g in groups]
+        weights = [max(1.0, (g["w"] * g["h"]) ** 0.5) * float(g.get("w8", 1) or 1) for g in groups]
         tot = sum(weights)
         cur, starts, ends = 0, [], []
         for wgt in weights:
@@ -120,6 +137,8 @@ def auto_annotation(groups: list, total_ms: int, scene_id: str, pad: int = 14) -
     elements = []
     for g, s, e in zip(groups, starts, ends):
         dur = max(400, e - s - BREATH_MS)
+        if g.get("d"):                       # data-wb-d: 이 구역은 최대 d초 안에 그리고 다음 시각까지 멈춤(내용 적은 구역)
+            dur = max(400, min(dur, int(round(float(g["d"]) * 1000))))
         x0, y0 = max(0, int(g["x"]) - pad), max(0, int(g["y"]) - pad)
         x1, y1 = min(W, int(g["x"] + g["w"]) + pad), min(H, int(g["y"] + g["h"]) + pad)
         elements.append({
@@ -132,6 +151,34 @@ def auto_annotation(groups: list, total_ms: int, scene_id: str, pad: int = 14) -
         })
     return {"sceneId": scene_id, "canvas": {"width": W, "height": H}, "storyBasis": "",
             "sceneDurationMs": total_ms, "elements": elements}
+
+
+# ── 진단: 구역별 일정·속도(잉크 px/s) ─────────────────────────────────────────
+def pace_report(png: pathlib.Path, ann: dict, total_ms: int) -> None:
+    import cv2
+    import numpy as np
+    img = cv2.imdecode(np.fromfile(str(png), dtype=np.uint8), cv2.IMREAD_COLOR)
+    ink = img.astype(int).sum(axis=2) < 3 * 235
+    print("  구역 일정 (클립 시작 기준) — 나레이션 문장 시작과 비교하세요:")
+    print("   순번  시작~끝(s)      길이   잉크px    px/s   라벨")
+    warned = 0
+    for e in sorted(ann["elements"], key=lambda e: e["sequence"]):
+        r, rv = e["region"], e["reveal"]
+        n = int(ink[r["y"]:r["y"] + r["height"], r["x"]:r["x"] + r["width"]].sum())
+        s0, d = rv["startMs"] / 1000, rv["durationMs"] / 1000
+        pps = n / d if d > 0 else 0
+        flag = ""
+        if n == 0:
+            flag = "  ⚠ 잉크 없음(빈 구역?)"
+        elif pps < PACE_MIN:
+            flag = "  ⚠ 느림(펜이 기어감) — 구역 합치기/선 추가/시간 줄이기"
+        elif pps > PACE_MAX:
+            flag = "  ⚠ 빠름(순식간) — 구역 쪼개기/선 줄이기/시간 늘리기"
+        warned += bool(flag)
+        print(f"   {e['sequence']:>3}  {s0:6.2f}~{s0 + d:6.2f}  {d:5.2f}s  {n:7d}  {pps:6.0f}   {e.get('label', '')}{flag}")
+    last = max(e["reveal"]["startMs"] + e["reveal"]["durationMs"] for e in ann["elements"]) / 1000
+    print(f"   완성 그림 유지: {last:.2f}~{total_ms / 1000:.2f}s ({total_ms / 1000 - last:.2f}s)"
+          + (f"   ⚠ 경고 {warned}건" if warned else ""))
 
 
 # ── 가드: 자막 안전 영역 ───────────────────────────────────────────────────────
@@ -156,10 +203,15 @@ def main() -> None:
     ap.add_argument("--auto", action="store_true", help="PNG를 1구역으로 자동 annotation")
     ap.add_argument("--hand", default=str(DEFAULT_HAND), help="손 자산 PNG 경로 또는 none")
     ap.add_argument("--fps", type=int, default=30)
+    ap.add_argument("--hand-height", type=int, default=400,
+                    help="손 자산 높이 px(기본 400). 손은 펜촉에서 우하단으로 뻗으므로 크면 하단 자막을 덮는다")
     ap.add_argument("--ink-path", default="grid", choices=["grid", "skeleton"])
     ap.add_argument("--color-fill", default="contour-wipe", choices=["contour-wipe", "brush"])
     ap.add_argument("--allow-bottom", action="store_true", help="하단 21% 잉크 가드 무시(권장 안 함)")
     ap.add_argument("--keep-png", action="store_true", help="SVG에서 구운 PNG·annotation을 남긴다(디버그)")
+    ap.add_argument("--tail", type=float, default=TAIL_GAZE_MS / 1000, help="다 그린 뒤 완성 그림 유지 초(기본 0.6)")
+    ap.add_argument("--pause", default="heavy", choices=["heavy", "auto", "light", "off"], help="엔진 숨 고르기 강도")
+    ap.add_argument("--dry-run", action="store_true", help="구역 일정·속도 진단표만 출력하고 렌더하지 않는다")
     args = ap.parse_args()
 
     if not ENGINE.is_file():
@@ -178,7 +230,7 @@ def main() -> None:
 
     if scene.suffix.lower() == ".svg":
         groups = svg_to_png(scene, png)
-        ann = auto_annotation(groups, total_ms, work.name)
+        ann = auto_annotation(groups, total_ms, work.name, tail_ms=int(round(args.tail * 1000)))
         ann_path.write_text(json.dumps(ann, ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"  SVG → PNG {W}x{H}, 구역 {len(ann['elements'])}개 "
               f"({'data-wb 순번' if groups else '전체 1구역'})")
@@ -197,7 +249,8 @@ def main() -> None:
             im = cv2.imdecode(np.fromfile(str(png), dtype=np.uint8), cv2.IMREAD_COLOR)
             h0, w0 = im.shape[:2]
             ann = auto_annotation([{"id": "all", "seq": 1, "t": None, "label": "전체",
-                                    "x": 0, "y": 0, "w": w0, "h": h0}], total_ms, work.name)
+                                    "x": 0, "y": 0, "w": w0, "h": h0}], total_ms, work.name,
+                                  tail_ms=int(round(args.tail * 1000)))
             ann["canvas"] = {"width": w0, "height": h0}
             ann["elements"][0]["region"] = {"x": 0, "y": 0, "width": w0, "height": h0}
             ann_path.write_text(json.dumps(ann, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -209,6 +262,10 @@ def main() -> None:
         sys.exit(f"[중단] 하단 {int(BOTTOM_SAFE_RATIO*100)}% 자막 안전 영역에 잉크 {ink*100:.2f}% — "
                  f"장면을 위로 올리거나(권장) --allow-bottom")
     print(f"  자막 안전 영역 잉크 {ink*100:.2f}% (허용 {BOTTOM_INK_TOL*100:.1f}%)")
+    pace_report(png, ann, total_ms)
+    if args.dry_run:
+        print("[dry-run] 렌더 생략")
+        return
 
     cmd = [sys.executable, str(ENGINE), str(png), str(ann_path), str(out)]
     if args.hand.lower() == "none":
@@ -218,8 +275,10 @@ def main() -> None:
         if not hand.is_file():
             sys.exit(f"[오류] 손 자산 없음: {hand}")
         cmd.append(str(hand))
+        cmd += ["--tip-anchor", HAND_TIP_ANCHOR.get(hand.name, "0,1")]
     cmd += ["--canvas", "#ffffff", "--fps", str(args.fps), "--cap-long-edge", str(W),
-            "--total-ms", str(total_ms), "--ink-path", args.ink_path, "--color-fill", args.color_fill]
+            "--total-ms", str(total_ms), "--ink-path", args.ink_path, "--color-fill", args.color_fill,
+            "--pause", args.pause, "--hand-height", str(args.hand_height)]
     print(f"  렌더: {out.name} ({args.duration:.2f}s, {args.fps}fps, {args.ink_path}/{args.color_fill})")
     p = subprocess.run(cmd, text=True, encoding="utf-8", errors="replace", capture_output=True,
                        env={**__import__('os').environ, "PYTHONUTF8": "1"})
