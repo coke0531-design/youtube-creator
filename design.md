@@ -156,6 +156,7 @@ const COLORS = {
 | 크로스 디졸브 (cross dissolve) | 슬라이드 전환 기본값 | 앞 슬라이드가 겹쳐 사라지며 다음이 등장 | 모든 슬라이드 전환 (별도 지시 불필요) | 0.45s |
 | 키네틱 타이포그래피 (kinetic typography) | `slam`(9:16) / `grow-scale`+히어로 조합 | 글자 자체가 움직이는 연출 | 🔒 **게이트: 히어로/훅 슬라이드 한정, 영상당 1~2회** — 미니멀 무드 오염 방지 | 0.35~0.85s |
 | ⏸ 화이트보드 드로잉 (whiteboard draw) — **비활성(2026-08-16 오너 결정, 제안·사용 금지. 켜는 법 = `scripts/whiteboard/README.md`)** | `scripts/render_whiteboard.py` → 오버레이 `wb<n>.mp4`(`style: "whiteboard"`) | 흰 화면 위에 손+마커가 4색 선화를 **순서대로 그려 나감**(구역별 잉크→채색). 슬라이드 위 오버레이 트랙에 얹힘 | 스토리·비유·개념 설명 등 **수치 없는 대목**. 🔒 **게이트: 영상당 1~3장면, 한 장면 8~30초, 데이터·비교·프로세스에는 쓰지 않음**(그건 차트·카드가 더 낫다). 장면 규칙 = `템플릿/whiteboard/README.md` (2026-08-16 신설, 실측 판단 전 — 별로면 `scripts/whiteboard/README.md` 롤백) | 구간 길이 그대로 |
+| 콜라주 인서트 (paper cutout collage) | `scripts/render_collage.py` → 오버레이 `ov<n>.mp4`(`style: "collage"`, 대본 = `04_영상소스/collage/cg<n>.json`) | 색종이 배경 위에 오려낸 종이 조각이 하나씩 "탁" 붙는 스톱모션 콜라주(찢은 가장자리·하드 섀도·posterize 8fps boil). 풀스크린 인서트로 슬라이드를 대체 | 실패담·에피소드 서사, 항목 나열·비교(2~3개), 수치·비율(종이 파이·코인 막대). 🔒 **게이트: 편당 1~3개, 한 인서트 15~45초, 합계 ≤ 러닝타임 25%(스크립트 강제). 화면 시연·코드 설명·추상 개념에는 쓰지 않음** — 규칙·스키마 = youtube-editor SKILL.md Step 6.7 + `공유 프로젝트/cutout-collage-lab/README.md` | 구간 길이 그대로 |
 
 - 모든 등장은 **순차(스태거)**, 동시 등장 금지.
 - scale 바운스는 0.88~1.08 범위.

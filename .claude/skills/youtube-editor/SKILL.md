@@ -251,7 +251,7 @@ python scripts/split_captions.py "결과물/<작업>/03_자막/full.srt" --check
 }
 ```
 
-`video_overlays`(선택 — 오버레이 모드에서만): `n`=오버레이 번호(ov<n>.mp4), `src`=사용자 원본(작업 루트 기준 상대경로), `start`/`end`=**오디오 타임베이스**의 배치 구간(초), `src_dur`=원본 길이(encode_overlays.py가 실측으로 갱신), `label`=내용 한 줄. `style`(선택)=`"whiteboard"`면 화이트보드 드로잉 클립(Step 6.6) — 흰 배경이라 겹치는 자막을 흰색으로 바꾸지 않고 잉크색 유지(assemble_capcut.py·render_final.py 공통). 실사 오버레이는 `style` 생략.
+`video_overlays`(선택 — 오버레이 모드에서만): `n`=오버레이 번호(ov<n>.mp4), `src`=사용자 원본(작업 루트 기준 상대경로), `start`/`end`=**오디오 타임베이스**의 배치 구간(초), `src_dur`=원본 길이(encode_overlays.py가 실측으로 갱신), `label`=내용 한 줄. `style`(선택)=`"whiteboard"`면 화이트보드 드로잉 클립(Step 6.6) — 흰 배경이라 겹치는 자막을 흰색으로 바꾸지 않고 잉크색 유지(assemble_capcut.py·render_final.py 공통). `style`=`"collage"`면 콜라주 인서트(Step 6.7) — `scene` 필드(콜라주 대본 JSON 경로) 필수, encode_overlays.py는 건너뛴다. 실사 오버레이는 `style` 생략.
 
 ### 영상 소스 오버레이 (사용자 제공 시연/실사 영상) — 오버레이 모드
 
@@ -274,6 +274,18 @@ python scripts/split_captions.py "결과물/<작업>/03_자막/full.srt" --check
 5. **편집지시서** — 오버레이 표에 `종류=화이트보드` 열로 함께 기재하고, 장면이 어떤 대본 문장을 그리는지 한 줄 적는다.
 
 실측 판단 기준(오너): 완성본에서 ① 그려지는 속도가 나레이션과 맞는가 ② 흰 배경 슬라이드와 이질감이 없는가 ③ 손 자산이 어색하지 않은가. 별로면 `scripts/whiteboard/README.md` 롤백 절차(태그 `pre-whiteboard-2026-08-16`).
+
+### Step 6.7: 콜라주 인서트 (페이퍼 컷아웃 콜라주 — 선택, "딱 쓸만한 순간에만")
+
+색종이 배경 위에 "신문·잡지에서 오려낸 종이 조각을 하나씩 붙이는" 스톱모션 룩의 인서트를 얹는다. 렌더 엔진은 별도 레포 `공유 프로젝트/cutout-collage-lab`(Remotion, 대본 스키마 = 그 레포 `src/schema.ts`·`README.md`), 실행은 `scripts/render_collage.py`.
+
+**결정 트리 — 아래 셋 중 하나에 해당할 때만 쓴다 (기본은 미사용):**
+① **실패담·에피소드 서사** — 사물·사건이 하나씩 등장하며 이야기가 쌓이는 대목 ② **항목 나열·비교** — 2~3개 항목이 나란히 놓이는 대목 ③ **수치·비율** — 종이 파이·코인 막대로 보여줄 데이터. **금지**: 화면 시연·코드 설명·추상 개념 설명 구간(슬라이드·차트가 더 낫다). 🔒 **게이트: 편당 1~3개, 한 인서트 15~45초, 합계 ≤ 러닝타임 25%** (render_collage.py가 25%를 기계로 강제).
+
+1. **대본 작성** — `04_영상소스/collage/cg<n>.json` (lab 스키마). 씬 duration 합 = 오버레이 구간(end−start)과 정확히 일치. **caption 필드 금지** — 본편이 흰 상자 자막을 굽는다. 요소 등장 시각은 해당 나레이션 어절 타임스탬프에 맞추고, 첫 요소는 0.5초 안에 등장시킨다(빈 배경 금지).
+2. **타임라인 등록** — `video_overlays[]`에 `{ "n", "src": "04_영상소스/ov<n>.mp4", "start", "end", "style": "collage", "scene": "04_영상소스/collage/cg<n>.json", "label" }`. src는 렌더 산출물 자신을 가리킨다(검증 D·E 통과용). encode_overlays.py는 collage 항목을 건너뛴다.
+3. **렌더** — `python scripts/render_collage.py <작업 폴더>` → 겹침 검사(lab tools/check_layout.py --strict) → Remotion 렌더 → `04_영상소스/ov<n>.mp4` (1920x1080·30fps·무음·bt709·정확한 길이).
+4. **편집지시서** — 오버레이 표에 `종류=콜라주` 로 기재하고, 어떤 대본 문장 구간인지 한 줄 적는다.
 
 ### Step 7: 헤드리스 캡처 (HTML → capture.mp4)
 
@@ -432,6 +444,7 @@ python scripts/stage_capcut_kit.py "결과물/<작업>/타임라인.json"
 ├─ 인용/발언?      → quote-block (+ 인물 사진)
 ├─ 감정/리액션/질문? → 스티커(레퍼런스/스티커/ 먼저 스캔 — 없으면 제작 후 등재) 또는 큰 SVG 아이콘 (460px+)
 ├─ 스토리/비유/개념 설명(수치 없음)? → 큰 SVG 장면 그림 (⏸ 화이트보드 드로잉은 비활성 — Step 6.6)
+├─ 실패담·에피소드 서사 / 사물이 쌓이는 이야기? → 콜라주 인서트 (Step 6.7 — 게이트 확인)
 └─ 해당 없음?      → SVG 기본 도형 (원/화살표/느낌표) + 라벨
 ```
 
@@ -470,6 +483,7 @@ python scripts/analyze_motion.py "레퍼런스.mp4" --scene 0.2   # 컷이 덜 �
 - [ ] capture.mp4 — 헤드리스 캡처 (길이 = 타임라인 duration, 30fps, 첫 프레임 = 첫 슬라이드, 해상도 2560x1440)
 - [ ] (오버레이 모드) ov<n>.mp4 전부 생성(encode_overlays.py) — 배속 0.5~2.0×, video_overlays가 편집지시서 오버레이 표와 일치, 오버레이 밑 폴백 슬라이드 존재
 - [ ] (화이트보드 장면 사용 시) wb<n>.mp4 길이 = 구간 길이(배속 1.000×), `style: "whiteboard"` 기재, 장면 SVG가 `04_영상소스/wb-scenes/`에 보존, 영상당 3장면 이하
+- [ ] (콜라주 인서트 사용 시) render_collage.py 통과(겹침 0·길이 일치·합계 ≤25%), `style: "collage"`+`scene` 기재, 대본 JSON이 `04_영상소스/collage/`에 보존, 편당 3개 이하
 - [ ] CapCut 드래프트 — 3트랙(오버레이 있으면 4트랙) 조립 완료, 사용자에게 검수·내보내기 안내
 - [ ] 캡컷 조립 재료/ — stage_capcut_kit.py 실행, 조립 필요 파일 전부 존재(오디오·SRT·capture·ov*·편집지시서·타임라인)
 - [ ] 01_대본/ 대본 끝에 '영상 요약'(영상 설명/챕터) 섹션 추가 — **첫 줄 고정 해시태그 4개(변경 금지)**, 첫 챕터 00:00, 챕터 시간이 타임라인.json과 일치, 레퍼런스 '콘텐츠 정리' 형식

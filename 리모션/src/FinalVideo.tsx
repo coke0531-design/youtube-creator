@@ -18,9 +18,11 @@ import {Caption} from './srt';
 //   ov<n>.mp4    — video_overlays[] 구간에 슬라이드 위로 얹는 실사 영상 (무음)
 //   full.srt / timeline.json — Root.tsx calculateMetadata가 파싱해 props로 주입
 //
-// 자막 규칙은 assemble_capcut.py를 그대로 미러링한다:
-//   기본색 = 잉크 #141413 (흰 배경 슬라이드), 오버레이가 떠 있는 구간만 흰색 #ffffff.
-//   하단 배치 = CAPTION_SAFE_AREA.md "하단에서 약 162px" (CAPTION_Y main=-0.70 환산).
+// 자막 = '흰 상자 자막' (2026-08-16 레퍼런스 픽셀 실측 — 스펙 SSOT는 자막-안전영역.md,
+// 수치는 scripts/render_final.py ASS_BOX_*와 1:1 동기):
+//   잉크 글자 52px 볼드 + 흰 상자(텍스트 밀착, 패딩 8/10px) + 테두리 2px #001610
+//   + 다크그린 #063B34 하드 오프셋 섀도(우·하 10px, 블러 없음), 상자 중심 하단 86px, 컷 등장.
+//   상자가 배경 무관 가독성을 보장하므로 오버레이 구간 흰색 오버라이드는 폐지.
 
 export const FPS = 30;
 
@@ -31,15 +33,11 @@ export type FinalProps = {
   overlays: Overlay[];
 };
 
-// CAPTION_Y["main"] = -0.70 → 하단거리 = (1 + (-0.70)) × (1080/2) = 162px (자막 세로 '중심')
-const CAPTION_CENTER_FROM_BOTTOM = 162;
+// 레퍼런스 실측(720p→1080p 환산): 자막 상자 '중심'의 하단거리 86px (8%H)
+const CAPTION_CENTER_FROM_BOTTOM = 86;
 const CAPTION_INK = COLORS.ink; // #141413 (기본 잉크)
-const CAPTION_WHITE = '#ffffff'; // 오버레이(실사 영상) 구간
 
-const overlayActiveAt = (overlays: Overlay[], t: number): boolean =>
-  overlays.some((o) => t >= o.start && t < o.end);
-
-const CaptionLayer: React.FC<FinalProps> = ({captions, overlays}) => {
+const CaptionLayer: React.FC<FinalProps> = ({captions}) => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const t = frame / fps; // 프레임 → 오디오 초 (t=0 = 음성 시작)
@@ -47,7 +45,6 @@ const CaptionLayer: React.FC<FinalProps> = ({captions, overlays}) => {
   if (!cur) {
     return null;
   }
-  const color = overlayActiveAt(overlays, t) ? CAPTION_WHITE : CAPTION_INK;
   return (
     <div
       style={{
@@ -55,7 +52,7 @@ const CaptionLayer: React.FC<FinalProps> = ({captions, overlays}) => {
         left: 0,
         right: 0,
         bottom: CAPTION_CENTER_FROM_BOTTOM,
-        transform: 'translateY(50%)', // bottom 기준선을 자막 '중심'이 162px에 오도록 보정
+        transform: 'translateY(50%)', // bottom 기준선을 자막 '중심'이 86px에 오도록 보정
         display: 'flex',
         justifyContent: 'center',
         padding: '0 160px',
@@ -64,10 +61,14 @@ const CaptionLayer: React.FC<FinalProps> = ({captions, overlays}) => {
       <span
         style={{
           fontFamily: FONT_STACK,
-          fontWeight: 900, // CAPTION_SAFE_AREA.md: Black/ExtraBold
-          fontSize: 60, // 1080p 기준 56px 이상
-          lineHeight: 1.25,
-          color,
+          fontWeight: 800, // 레퍼런스 볼드 굵기 (ASS Bold=-1 상당)
+          fontSize: 52, // 레퍼런스 글리프 높이 37.5px@1080p 환산
+          lineHeight: 1.0,
+          color: CAPTION_INK,
+          backgroundColor: '#FDFEFE', // 흰 상자 — 텍스트 폭 밀착
+          border: '2px solid #001610',
+          boxShadow: '10px 10px 0 #063B34', // 하드 오프셋 섀도 (블러 0)
+          padding: '8px 10px',
           textAlign: 'center', // 중앙 정렬 (import_srt align=1)
           whiteSpace: 'pre-wrap', // 자동 줄바꿈
           maxWidth: 1400,

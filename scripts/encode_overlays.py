@@ -87,6 +87,11 @@ def main() -> None:
 
     changed = False
     for o in overlays:
+        if o.get("style") == "collage":
+            # 콜라주 인서트는 render_collage.py가 ov<n>.mp4를 정확한 길이로 직접 렌더한다 —
+            # 여기서 재인코딩하면 자기 자신을 입력으로 덮어쓰므로 반드시 건너뛴다.
+            print(f"  ov{o['n']}: collage — 건너뜀 (scripts/render_collage.py 담당)")
+            continue
         src = (base / o["src"]).resolve()
         if not src.is_file():
             sys.exit(f"[오류] 원본 영상 없음: {src}")

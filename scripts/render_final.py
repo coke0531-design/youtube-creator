@@ -61,24 +61,32 @@ REMOTION = REPO / "리모션"
 JOB_DIR = REMOTION / "public" / "job"
 RENDER_OUT = REMOTION / "out" / "final.mp4"
 
-# ── ffmpeg 자막(ASS) 규격 — 본편은 FinalVideo.tsx/자막-안전영역.md(16:9), 쇼츠는
-#    세로-레이아웃.md(9:16)를 픽셀로 환산. kind별로 PlayRes·크기·여백만 다르고 폰트·색은 공통. ──
-# 폰트   : Pretendard  (design.md §2-3 · 자막-안전영역.md/세로-레이아웃.md 폰트 표 · FinalVideo FONT_STACK 1순위)
-# 크기   : 60px @1080p (FinalVideo.tsx fontSize:60 — 두 규격 모두 "56px 이상"을 실제로 쓴 값. 쇼츠도 동일 물리크기)
-# 색     : #141413 잉크. ASS는 &HAABBGGRR 순서라 R=14 G=14 B=13 → BBGGRR=13 14 14 → &H00131414.
-#          assemble_capcut.py CAPTION_COLOR(#141413)·FinalVideo COLORS.ink와 동일. 본편 오버레이(실사) 구간만 흰색.
+# ── ffmpeg 자막(ASS) 규격 — '흰 상자 자막' (2026-08-16 레퍼런스 픽셀 실측으로 전면 교체) ──
+# 레퍼런스: Sherlock Hyunjoon 모듈러 주택 편(youtu.be/QhvJRQ9q4F0)의 번인 자막을 720p 프레임에서
+# 픽셀 실측 → 1080p 환산. 스펙(자막-안전영역.md '흰 상자 자막' 절이 SSOT):
+#   글자   : 잉크 #141413, 볼드, Pretendard 52px @1080p (실측 글리프 높이 25px@720p=37.5px@1080p — Pretendard는 글리프가 0.72em이라 52px로 환산)
+#   상자   : 흰색(#FDFEFE)이 텍스트 폭에 밀착, 패딩 ≈10px, 테두리 2px #001610(진녹흑)
+#   그림자 : 다크그린 #063B34 하드 오프셋(우·하 대각 ≈8px, 블러 없음)
+#   위치   : 하단 중앙, 상자 중심이 바닥에서 86px @1080p (실측 8%H)
+#   등장   : 컷 전환(페이드·팝 없음), 발화 내내 상시 표시
+# 상자가 어떤 배경에서도 가독성을 보장하므로 구간별 흰색 오버라이드는 폐지(전 컷 동일 스타일).
+# ASS 색은 &HAABBGGRR: 잉크(20,20,19)→&H00131414, 상자(253,254,254)→&H00FEFEFD,
+# 테두리(0,22,16)→&H00101600, 그림자(6,59,52)→&H00343B06.
 ASS_FONT = "Pretendard"
 ASS_STYLE_INK = "&H00131414"
-ASS_OVERRIDE_WHITE = "{\\c&H00FFFFFF&}"          # 컷 단위 흰색 오버라이드 (&HFFFFFF) — 본편 오버레이 구간 한정
+ASS_BOX_FILL = "&H00FEFEFD"
+ASS_BOX_RIM = "&H00101600"
+ASS_BOX_SHADOW = "&H00343B06"
+ASS_BOX_PAD = 8         # 흰 상자 패딩(px, 1080 기준). ASS 불투명 상자는 em 승강부만큼 세로가 더 붙어 8이 레퍼런스 밀착감과 일치
+ASS_BOX_RIM_W = 2       # 테두리 두께(px)
+ASS_BOX_SHADOW_OFF = 10  # 하드 섀도 대각 오프셋(px, 레퍼런스 실측 7px@720p 환산)
 # kind별 규격:
 #  - playres            : ASS PlayRes = 렌더 정규화 해상도(본편 1920x1080 / 쇼츠 1080x1920).
-#  - fontsize           : 60px (자막-안전영역.md·세로-레이아웃.md "56px 이상" 공통).
-#  - margin_lr          : 좌우 여백. 본편=160px(FinalVideo padding '0 160px') /
-#                         쇼츠=48px(세로-레이아웃.md 세로 콘텐츠 좌우 패딩 48px → 유효 폭 984px).
-#  - center_from_bottom : 자막 '중심'의 하단거리. CAPTION_Y로 환산 = (1+transform_y)×(H/2).
-#                         본편 -0.70 → (1-0.70)×540=162 / 쇼츠 -0.60 → (1-0.60)×960=384 (세로-레이아웃 문서 '하단 384px').
+#  - fontsize           : 본편 52px(레퍼런스 실측 환산). 쇼츠는 폰 시청 거리 보정으로 기존 60px 유지.
+#  - margin_lr          : 좌우 여백(줄바꿈 한계). 본편 160px 유지 / 쇼츠 48px.
+#  - center_from_bottom : 자막 '중심'의 하단거리. 본편 86px(레퍼런스 실측 8%H) / 쇼츠 384px(세로-레이아웃.md).
 ASS_SPEC = {
-    "main":  {"playres": (1920, 1080), "fontsize": 60, "margin_lr": 160, "center_from_bottom": 162},
+    "main":  {"playres": (1920, 1080), "fontsize": 52, "margin_lr": 160, "center_from_bottom": 86},
     "short": {"playres": (1080, 1920), "fontsize": 60, "margin_lr": 48,  "center_from_bottom": 384},
 }
 
@@ -247,15 +255,21 @@ def _read_srt_cues(path: pathlib.Path):
 
 
 def _build_ass(srt: pathlib.Path, overlays: list, kind: str = "main") -> tuple[str, int, int]:
-    """SRT → ASS 문자열. 오버레이 구간과 겹치는 컷만 흰색 오버라이드 (assemble_capcut.py와 동일 판정).
+    """SRT → ASS 문자열 — '흰 상자 자막' (레퍼런스 실측 스타일, 상단 ASS_BOX_* 참조).
 
-    kind로 PlayRes·크기·여백만 갈린다(본편 16:9 / 쇼츠 9:16). 쇼츠는 overlays=[]라 전부 잉크색.
-    반환: (ass_text, 전체 컷 수, 흰색 컷 수)."""
+    구현: BorderStyle=3(불투명 상자) 2레이어. 같은 텍스트를 두 번 그린다:
+      Layer 0 "CapRim": 글자 투명(알파 FF) + 상자 = 테두리색, Outline = 패딩+테두리 두께
+                        → 흰 상자보다 사방 2px 큰 진녹흑 상자 = 테두리.
+                        Shadow = 8 → 이 상자의 오프셋 사본이 BackColour(다크그린)로 깔림 = 하드 섀도.
+      Layer 1 "Cap"   : 잉크 글자 + 흰 상자(Outline = 패딩), Shadow = 0.
+    상자가 배경 무관 가독성을 보장하므로 오버레이 구간 흰색 오버라이드는 폐지 — overlays 인자는
+    호출부 호환용으로만 남긴다. 반환: (ass_text, 전체 컷 수, 0)."""
     (resx, resy), fontname, fontsize, margin_lr, margin_v = _ass_params(kind)
-    # 오버레이 구간(초) — assemble_capcut.py: on_overlay = any(start < oe and end > os)
-    #  style=whiteboard(흰 배경 드로잉)는 제외 — 자막 잉크색 유지 (assemble_capcut.py와 동일)
-    ov_ranges = [(float(o["start"]), float(o["end"])) for o in overlays if o.get("style") != "whiteboard"]
-
+    style_fmt = ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
+                 "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
+                 "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding")
+    common = f"-1,0,0,0,100,100,0,0,3"      # Bold=-1, BorderStyle=3(불투명 상자)
+    tail = f"2,{margin_lr},{margin_lr},{margin_v},1"   # Alignment=2(하단 중앙)
     header = [
         "[Script Info]",
         "ScriptType: v4.00+",
@@ -266,29 +280,25 @@ def _build_ass(srt: pathlib.Path, overlays: list, kind: str = "main") -> tuple[s
         "YCbCr Matrix: TV.709",
         "",
         "[V4+ Styles]",
-        ("Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, "
-         "BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, "
-         "BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding"),
-        # Bold=-1(900 상당), Outline=0/Shadow=0(FinalVideo에 외곽선·그림자 없음), Alignment=2(하단 중앙)
-        (f"Style: Default,{fontname},{fontsize},{ASS_STYLE_INK},&H000000FF,&H00000000,"
-         f"&H00000000,-1,0,0,0,100,100,0,0,1,0,0,2,"
-         f"{margin_lr},{margin_lr},{margin_v},1"),
+        style_fmt,
+        # 테두리+그림자 레이어: 글자 알파 FF(투명) — 상자(테두리색)와 그 그림자만 남는다
+        (f"Style: CapRim,{fontname},{fontsize},&HFF131414,&H000000FF,{ASS_BOX_RIM},"
+         f"{ASS_BOX_SHADOW},{common},{ASS_BOX_PAD + ASS_BOX_RIM_W},{ASS_BOX_SHADOW_OFF},{tail}"),
+        # 본체 레이어: 잉크 글자 + 흰 상자
+        (f"Style: Cap,{fontname},{fontsize},{ASS_STYLE_INK},&H000000FF,{ASS_BOX_FILL},"
+         f"{ASS_BOX_FILL},{common},{ASS_BOX_PAD},0,{tail}"),
         "",
         "[Events]",
         "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
     ]
 
-    events, total, white = [], 0, 0
+    events, total = [], 0
     for cs, ce, text in _read_srt_cues(srt):
-        on_overlay = any(cs < oe and ce > os_ for os_, oe in ov_ranges)
         payload = _ass_escape(text)
-        if on_overlay:
-            payload = ASS_OVERRIDE_WHITE + payload
-            white += 1
         total += 1
-        events.append(
-            f"Dialogue: 0,{_ass_time(cs)},{_ass_time(ce)},Default,,0,0,0,,{payload}")
-    return "\n".join(header + events) + "\n", total, white
+        events.append(f"Dialogue: 0,{_ass_time(cs)},{_ass_time(ce)},CapRim,,0,0,0,,{payload}")
+        events.append(f"Dialogue: 1,{_ass_time(cs)},{_ass_time(ce)},Cap,,0,0,0,,{payload}")
+    return "\n".join(header + events) + "\n", total, 0
 
 
 def _build_filter(overlays: list, playres: tuple = (1920, 1080)) -> str:
@@ -303,7 +313,9 @@ def _build_filter(overlays: list, playres: tuple = (1920, 1080)) -> str:
       얹히고 ASS PlayRes 자막 좌표도 어긋난다.
     """
     w, h = playres
-    parts, cur = [f"[0:v]scale={w}:{h}:flags=lanczos[base]"], "[base]"
+    # out_range=tv: capture가 full-range(yuvj420p)로 캡처돼도 limited로 통일 — Windows '영화 및 TV'
+    # 하드웨어 디코더가 full-range H.264에서 0xC00D36D6로 끊긴다 (2026-08-16 실측)
+    parts, cur = [f"[0:v]scale={w}:{h}:flags=lanczos:out_range=tv[base]"], "[base]"
     for i, o in enumerate(overlays, start=1):        # 입력 index i (0=capture, N+1=audio)
         s, e = float(o["start"]), float(o["end"])
         parts.append(f"[{i}:v]setpts=PTS-STARTPTS+{s:.3f}/TB[ov{i}]")
@@ -346,7 +358,7 @@ def _build_short_filter(cuts: list, audio_idx: int, playres: tuple) -> str:
     dst 순서대로 concat 한다 → 결과 오디오 길이 = 컷 길이 합(assemble_capcut.py와 동일 결과).
     비디오(capture)는 duration 전체를 유지하므로, 컷 합 < duration이면 뒤쪽 CTA 구간은 무음 꼬리가 된다."""
     w, h = playres
-    video_part = f"[0:v]scale={w}:{h}:flags=lanczos[base];[base]ass=subs.ass[vout]"
+    video_part = f"[0:v]scale={w}:{h}:flags=lanczos:out_range=tv[base];[base]ass=subs.ass[vout]"
     a_parts, labels = [], []
     for i, (_dst, src, d) in enumerate(cuts):
         lbl = f"a{i}"
@@ -417,7 +429,9 @@ def _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nve
         cmd += ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "19", "-b:v", "0"]
     else:
         cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "17"]
-    cmd += ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k", "-shortest",
+    cmd += ["-pix_fmt", "yuv420p", "-color_range", "tv", "-colorspace", "bt709",
+            "-color_primaries", "bt709", "-color_trc", "bt709", "-movflags", "+faststart",
+            "-c:a", "aac", "-b:a", "192k", "-shortest",
             "-progress", "pipe:1", "-nostats", str(out_path)]
     return cmd
 
@@ -452,11 +466,11 @@ def _render_ffmpeg(base, tl, audio, srt, video, overlays, ov_files, out_arg, nve
     # SRT → ASS. libass가 상대경로로 열 수 있도록 JOB_DIR에 subs.ass를 놓고 cwd를 JOB_DIR로 둔다.
     # (한글·콜론·역슬래시가 섞인 절대경로를 filter 문자열에 직접 넣으면 ffmpeg 필터 파서가 깨진다.)
     playres, fontname, fontsize, margin_lr, margin_v = _ass_params("main")
-    ass_text, total_cap, white_cap = _build_ass(srt, overlays, "main")
+    ass_text, total_cap, _ = _build_ass(srt, overlays, "main")
     JOB_DIR.mkdir(parents=True, exist_ok=True)
     ass_path = JOB_DIR / "subs.ass"
     ass_path.write_text(ass_text, encoding="utf-8")
-    print(f"[자막] ASS 생성: {ass_path} (컷 {total_cap}개, 오버레이 흰색 {white_cap}개, 잉크 {total_cap - white_cap}개)")
+    print(f"[자막] ASS 생성: {ass_path} (컷 {total_cap}개, 흰 상자 자막 — 전 컷 동일 스타일)")
     print(f"       규격: {fontname} {fontsize}px · 하단 여백(MarginV) {margin_v}px · 좌우 {margin_lr}px")
 
     filtergraph = _build_filter(overlays, playres)
@@ -511,11 +525,11 @@ def _render_ffmpeg_short(base, tl, audio, srt, video, out_arg, nvenc, dry_run):
 
     # SRT → ASS (쇼츠 규격). 쇼츠 오버레이 미지원 → overlays=[] (전부 잉크색).
     playres, fontname, fontsize, margin_lr, margin_v = _ass_params("short")
-    ass_text, total_cap, white_cap = _build_ass(srt, [], "short")
+    ass_text, total_cap, _ = _build_ass(srt, [], "short")
     JOB_DIR.mkdir(parents=True, exist_ok=True)
     ass_path = JOB_DIR / "subs.ass"
     ass_path.write_text(ass_text, encoding="utf-8")
-    print(f"[자막] ASS 생성(쇼츠 9:16): {ass_path} (컷 {total_cap}개, 전부 잉크 — 쇼츠 오버레이 미지원)")
+    print(f"[자막] ASS 생성(쇼츠 9:16): {ass_path} (컷 {total_cap}개, 흰 상자 자막)")
     print(f"       규격: {fontname} {fontsize}px · PlayRes {playres[0]}x{playres[1]} · 하단 여백(MarginV) {margin_v}px · 좌우 {margin_lr}px")
 
     filtergraph = _build_short_filter(cuts, audio_idx=1, playres=playres)   # 입력: 0=capture, 1=narration
@@ -527,7 +541,9 @@ def _render_ffmpeg_short(base, tl, audio, srt, video, out_arg, nvenc, dry_run):
     else:
         cmd += ["-c:v", "libx264", "-preset", "medium", "-crf", "17"]
     # -shortest 없음: capture(=duration) 전체 길이를 유지해 CTA 꼬리를 살리고, 짧은 오디오는 무음으로 끝난다.
-    cmd += ["-pix_fmt", "yuv420p", "-c:a", "aac", "-b:a", "192k",
+    cmd += ["-pix_fmt", "yuv420p", "-color_range", "tv", "-colorspace", "bt709",
+            "-color_primaries", "bt709", "-color_trc", "bt709", "-movflags", "+faststart",
+            "-c:a", "aac", "-b:a", "192k",
             "-progress", "pipe:1", "-nostats", str(out_path)]
 
     engine_label = "h264_nvenc(cq19)" if nvenc else "libx264(crf17/medium)"
