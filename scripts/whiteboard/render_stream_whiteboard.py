@@ -412,7 +412,10 @@ class RegionStreamRenderer:
                         self._lay_ink_grid(writer, ink_frames, samples, pen_lifts, sample_cell, path, allowed)
                         centers = [self._cell_center(c) for c in path]
                     else:
-                        self._lay_ink(writer, ink_frames, [], set(), None, allowed)
+                        # youtube-creator 개작: 빈 구역(뒤 구역 사각형에 완전히 가려짐) — 업스트림은 잘못된 인자로 크래시. 정지 프레임으로 채운다
+                        snap = self.drawn.astype(np.uint8)
+                        for _ in range(ink_frames):
+                            writer.write(snap)
                         centers = []
 
                 cur_ms += ink_frames * ms_per_frame

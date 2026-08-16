@@ -267,7 +267,7 @@ python scripts/split_captions.py "결과물/<작업>/03_자막/full.srt" --check
 
 스토리·비유·개념 설명처럼 **수치가 없는 대목**에서, 슬라이드 위에 "손+마커가 4색 선화를 순서대로 그려 나가는" 클립을 얹는다(design.md §4 렉시콘 "화이트보드 드로잉"). 렌더 엔진은 `scripts/whiteboard/`(geeklee/srt-whiteboard-animation vendoring, MIT), 장면 규칙·프롬프트는 `템플릿/whiteboard/README.md`. **기본은 미사용** — 결정 트리에서 해당 대목이 있을 때만, 🔒 영상당 1~3장면·장면당 8~30초.
 
-1. **장면 고르기 (Step 4에서)** — 슬라이드 분해 때 후보 대목을 표시하고, 그 아래에는 **폴백 슬라이드**를 그대로 만든다(오버레이 규칙과 동일 — 클립을 빼도 화면이 비지 않는다). 구간 `[start, end]`는 transcript 실측으로 슬라이드 경계에 맞춘다.
+1. **장면 고르기 (Step 4에서)** — 슬라이드 분해 때 후보 대목을 표시하고, 그 아래에는 **폴백 슬라이드**를 그대로 만든다(오버레이 규칙과 동일 — 클립을 빼도 화면이 비지 않는다). 구간은 `start` = 해당 슬라이드 시작, **`end` = 다음 슬라이드 시작 + 0.45s**(클립 끝이 흰색으로 페이드되며 슬라이드 디졸브를 덮는다 — 경계에서 뚝 끊으면 반쯤 섞인 프레임이 보여 어색).
 2. **장면 SVG 작성** — `템플릿/whiteboard/scene-example.svg`를 `04_영상소스/wb-scenes/wb<n>.svg`로 복사해 그린다. 규칙(흰 배경·4색·글자 없음·하단 21% 비움·`data-wb="N"` 순서·선택 `data-wb-t`)은 README 그대로. 복잡한 장면은 외부 이미지 생성 PNG + `--annotation`/`--auto`(README의 프롬프트 골격).
 3. **렌더** — `python scripts/render_whiteboard.py 04_영상소스/wb-scenes/wb<n>.svg --out 04_영상소스/wb<n>.mp4 --duration <end-start>` → 1920x1080·30fps·무음·정확한 길이. 하단 안전 영역에 잉크가 있으면 중단(fail-loud). 소요 ≈ 클립 길이 × 9.
 4. **타임라인 등록** — `video_overlays[]`에 `{ "n", "src": "04_영상소스/wb<n>.mp4", "style": "whiteboard", "start", "end", "label" }` 추가(실사 오버레이와 같은 배열, n은 통합 번호). 이후는 오버레이 모드와 동일: `encode_overlays.py`(배속 1.000× — 아니면 duration 오기입) → Step 7 캡처 → Step 8 조립(자막은 잉크색 유지).

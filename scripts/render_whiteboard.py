@@ -21,6 +21,13 @@
      선을 더 넣고, 너무 높으면(순식간에 그려짐) 구역을 쪼개거나 선을 줄인다. 참고 밴드 3k~30k px/s(경고만, 중단 안 함).
   ④ 내용은 적은데 문장이 긴 구역: data-wb-d="1.2"(최대 그리기 초) → 1.2초에 그리고 다음 구역 시각까지 멈춘다.
   ⑤ --tail: 다 그린 뒤 완성 그림을 보여주는 여유(기본 0.6s). --pause: 엔진 '숨 고르기' 강도(heavy/auto/light/off).
+  ⑥ 전환: 클립 끝 --fade-out(기본 0.45s)은 흰색으로 페이드된다. 슬라이드 덱은 경계에서 0.45s 크로스 디졸브가 도는데
+     오버레이가 경계에서 뚝 끊기면 반쯤 섞인 프레임이 드러나 어색하다 → 오버레이 end = 다음 슬라이드 시작 + 0.45,
+     --duration도 그만큼 길게(구간 = start~end). 시작은 슬라이드 경계 그대로(빈 흰 캔버스로 컷 인 = 자연스러움).
+  ⑦ 구역은 사각 bbox다: 뒤 구역의 사각형과 겹치는 앞 구역 픽셀은 뒤 차례에 그려진다(둘러싸는 화살표·큰 배경 그룹 주의).
+     진단표가 '가려짐 %'로 잡아 준다 — 그룹을 쪼개거나 배치를 옮긴다.
+  ⑧ 그리는 순서: 엔진은 한 구역 안에서 '가장 큰 덩어리 → 가까운 것' 순으로 그린다. 인물은 머리·몸을 목으로 이어
+     한 덩어리로 그리고(떨어진 머리는 맨 나중에 그려져 기괴함), 순서를 보장하려면 data-wb 그룹을 쪼갠다.
 
 계약(fail-loud):
   - 출력은 1920x1080·30fps·무음·정확히 --duration 초(오버레이 구간 길이) → encode_overlays.py에서 배속 1.0×.
@@ -57,6 +64,7 @@ BOTTOM_INK_TOL = 0.003          # 안전 영역 내 잉크 픽셀 비율 허용�
 TAIL_GAZE_MS = 600              # 다 그린 뒤 완성 그림을 보여주는 여유(기본 — --tail로 조절)
 PACE_MIN, PACE_MAX = 3000, 30000  # 구역별 잉크 px/s 참고 밴드(밖이면 경고)
 BREATH_MS = 150                 # 구역 사이 호흡
+FADE_OUT_DEFAULT = 0.45         # 끝에서 흰색으로 페이드(슬라이드 크로스 디졸브 0.45s와 동일 — 전환 어색함 방지)
 _TIME_RE = re.compile(r"time=(\d+):(\d+):(\d+\.\d+)")
 
 
@@ -102,6 +110,15 @@ def svg_to_png(svg: pathlib.Path, png: pathlib.Path):
         pg.wait_for_timeout(150)
         groups = pg.evaluate(_JS_GROUPS)
         pg.screenshot(path=str(png), full_page=False)
+        # 그룹별 '자기 잉크' 마스크 — 진단(가려짐)에서 뒤 구역 자신의 픽셀을 오탐하지 않기 위해 그룹 하나씩만 보이게 찍는다
+        import cv2
+        import numpy as np
+        for g in groups:
+            pg.evaluate("seq => document.querySelectorAll('[data-wb]').forEach(el => "
+                        "el.style.visibility = (Number(el.dataset.wb) === seq ? 'visible' : 'hidden'))", g["seq"])
+            buf = np.frombuffer(pg.screenshot(full_page=False), dtype=np.uint8)
+            im = cv2.imdecode(buf, cv2.IMREAD_COLOR)
+            g["own_ink"] = im.astype(int).sum(axis=2) < 3 * 235
         b.close()
     return groups
 
@@ -154,22 +171,40 @@ def auto_annotation(groups: list, total_ms: int, scene_id: str, pad: int = 14, t
 
 
 # ── 진단: 구역별 일정·속도(잉크 px/s) ─────────────────────────────────────────
-def pace_report(png: pathlib.Path, ann: dict, total_ms: int) -> None:
+def pace_report(png: pathlib.Path, ann: dict, total_ms: int, own: dict | None = None) -> None:
+    """own: {sequence: 자기 잉크 마스크} — SVG 경로에서만 제공(PNG 경로는 전체 잉크로 근사)."""
     import cv2
     import numpy as np
     img = cv2.imdecode(np.fromfile(str(png), dtype=np.uint8), cv2.IMREAD_COLOR)
-    ink = img.astype(int).sum(axis=2) < 3 * 235
+    ink_all = img.astype(int).sum(axis=2) < 3 * 235
     print("  구역 일정 (클립 시작 기준) — 나레이션 문장 시작과 비교하세요:")
     print("   순번  시작~끝(s)      길이   잉크px    px/s   라벨")
     warned = 0
-    for e in sorted(ann["elements"], key=lambda e: e["sequence"]):
+    els = sorted(ann["elements"], key=lambda e: e["sequence"])
+    for i, e in enumerate(els):
         r, rv = e["region"], e["reveal"]
-        n = int(ink[r["y"]:r["y"] + r["height"], r["x"]:r["x"] + r["width"]].sum())
+        ink = own.get(e["sequence"], ink_all) if own else ink_all
+        # 엔진과 같은 허용 마스크: 내 사각형 − 뒤 구역들의 사각형 (bbox가 겹치면 그 픽셀은 뒤 구역 차례에 그려진다)
+        allowed = np.zeros(ink.shape, dtype=bool)
+        allowed[r["y"]:r["y"] + r["height"], r["x"]:r["x"] + r["width"]] = True
+        culprits = []
+        for later in els[i + 1:]:
+            lr = later["region"]
+            sub = np.zeros(ink.shape, dtype=bool)
+            sub[lr["y"]:lr["y"] + lr["height"], lr["x"]:lr["x"] + lr["width"]] = True
+            hidden = int((ink & allowed & sub).sum())
+            if hidden:
+                culprits.append(f"{later.get('label', later['sequence'])}:{hidden}")
+            allowed &= ~sub
+        n_raw = int(ink[r["y"]:r["y"] + r["height"], r["x"]:r["x"] + r["width"]].sum())
+        n = int((ink & allowed).sum())
         s0, d = rv["startMs"] / 1000, rv["durationMs"] / 1000
         pps = n / d if d > 0 else 0
         flag = ""
         if n == 0:
-            flag = "  ⚠ 잉크 없음(빈 구역?)"
+            flag = "  ⚠ 잉크 없음 — 빈 구역이거나 뒤 구역 bbox에 완전히 가려짐(그룹 사각형 겹침 해소)"
+        elif n_raw - n > 0.25 * n_raw:
+            flag = f"  ⚠ {100 * (n_raw - n) / n_raw:.0f}%가 뒤 구역 bbox에 가려져 나중에 그려짐 [{', '.join(culprits)}] — 그룹 쪼개기/배치 조정"
         elif pps < PACE_MIN:
             flag = "  ⚠ 느림(펜이 기어감) — 구역 합치기/선 추가/시간 줄이기"
         elif pps > PACE_MAX:
@@ -210,6 +245,8 @@ def main() -> None:
     ap.add_argument("--allow-bottom", action="store_true", help="하단 21% 잉크 가드 무시(권장 안 함)")
     ap.add_argument("--keep-png", action="store_true", help="SVG에서 구운 PNG·annotation을 남긴다(디버그)")
     ap.add_argument("--tail", type=float, default=TAIL_GAZE_MS / 1000, help="다 그린 뒤 완성 그림 유지 초(기본 0.6)")
+    ap.add_argument("--fade-out", type=float, default=FADE_OUT_DEFAULT,
+                    help="끝에서 흰색으로 페이드되는 초(기본 0.45=슬라이드 디졸브). 오버레이 end는 '다음 슬라이드 시작+이 값'으로 잡는다. 0=끔")
     ap.add_argument("--pause", default="heavy", choices=["heavy", "auto", "light", "off"], help="엔진 숨 고르기 강도")
     ap.add_argument("--dry-run", action="store_true", help="구역 일정·속도 진단표만 출력하고 렌더하지 않는다")
     args = ap.parse_args()
@@ -228,9 +265,11 @@ def main() -> None:
     png = work.with_suffix(".png")
     ann_path = work.with_name(work.name + ".annotation.json")
 
+    own_masks = None
     if scene.suffix.lower() == ".svg":
         groups = svg_to_png(scene, png)
-        ann = auto_annotation(groups, total_ms, work.name, tail_ms=int(round(args.tail * 1000)))
+        own_masks = {g["seq"]: g.pop("own_ink") for g in groups}
+        ann = auto_annotation(groups, total_ms, work.name, tail_ms=int(round((args.tail + args.fade_out) * 1000)))
         ann_path.write_text(json.dumps(ann, ensure_ascii=False, indent=1), encoding="utf-8")
         print(f"  SVG → PNG {W}x{H}, 구역 {len(ann['elements'])}개 "
               f"({'data-wb 순번' if groups else '전체 1구역'})")
@@ -250,7 +289,7 @@ def main() -> None:
             h0, w0 = im.shape[:2]
             ann = auto_annotation([{"id": "all", "seq": 1, "t": None, "label": "전체",
                                     "x": 0, "y": 0, "w": w0, "h": h0}], total_ms, work.name,
-                                  tail_ms=int(round(args.tail * 1000)))
+                                  tail_ms=int(round((args.tail + args.fade_out) * 1000)))
             ann["canvas"] = {"width": w0, "height": h0}
             ann["elements"][0]["region"] = {"x": 0, "y": 0, "width": w0, "height": h0}
             ann_path.write_text(json.dumps(ann, ensure_ascii=False, indent=1), encoding="utf-8")
@@ -262,7 +301,7 @@ def main() -> None:
         sys.exit(f"[중단] 하단 {int(BOTTOM_SAFE_RATIO*100)}% 자막 안전 영역에 잉크 {ink*100:.2f}% — "
                  f"장면을 위로 올리거나(권장) --allow-bottom")
     print(f"  자막 안전 영역 잉크 {ink*100:.2f}% (허용 {BOTTOM_INK_TOL*100:.1f}%)")
-    pace_report(png, ann, total_ms)
+    pace_report(png, ann, total_ms, own_masks)
     if args.dry_run:
         print("[dry-run] 렌더 생략")
         return
@@ -284,6 +323,18 @@ def main() -> None:
                        env={**__import__('os').environ, "PYTHONUTF8": "1"})
     if p.returncode != 0 or not out.is_file():
         sys.exit(f"[오류] 렌더 실패\n{p.stdout[-1500:]}\n{p.stderr[-1500:]}")
+
+    if args.fade_out > 0:                     # 마지막 fade_out초를 흰색으로 — 슬라이드 디졸브와 같은 호흡으로 빠진다
+        st = max(0.0, args.duration - args.fade_out)
+        faded = out.with_name(out.stem + "_fade.mp4")
+        r = subprocess.run([_ffmpeg(), "-hide_banner", "-y", "-loglevel", "error", "-i", str(out),
+                            "-vf", f"fade=t=out:st={st:.3f}:d={args.fade_out:.3f}:color=white",
+                            "-c:v", "libx264", "-preset", "medium", "-crf", "18", "-pix_fmt", "yuv420p", "-an", str(faded)],
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if r.returncode != 0 or not faded.is_file():
+            sys.exit("[오류] 페이드아웃 인코딩 실패 — " + r.stderr[-800:])
+        faded.replace(out)
+        print(f"  페이드아웃 → 흰색 {args.fade_out:.2f}s (오버레이 end = 다음 슬라이드 시작 + {args.fade_out:.2f}s)")
 
     d = probe_duration(out)
     if abs(d - args.duration) > 0.15:
