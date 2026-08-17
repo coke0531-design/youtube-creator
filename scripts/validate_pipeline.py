@@ -14,6 +14,9 @@
   D. video_overlays : n 양의 정수·유일, 0 ≤ start < end ≤ duration, 서로 비겹침, 원본(src) 실존
   E. 미디어    : audio ≈ duration(±0.5s), capture.mp4(있으면) ≈ duration(±0.5s),
      ov<n>.mp4(있으면) ≥ 구간−0.5s. 파일이 아직 없으면 INFO로 표시만(단계 진행 중일 수 있음).
+  F. 콜라주 오프닝 (본편만) : style=="collage"·start==0.0 오버레이가 반드시 1개 존재(첫 장면 후킹 —
+     오너 결정 2026-08-18), 콜라주 개수 ≤ 3. 예전 작업 폴더 재조립처럼 예외가 필요하면 타임라인에
+     "opening_collage_waiver": "<사유>" 를 적는다 → 경고로 강등(사유가 로그에 남는다).
 
 사용:
   python validate_pipeline.py <타임라인.json> [--no-media]
@@ -36,6 +39,8 @@ SLIDE_GAP_TOL = 0.011      # 인접 슬라이드 연속 허용 오차(초)
 TIMELINE_T_TOL = 0.002     # SLIDE_TIMELINE t ↔ slides.start 허용 오차(초)
 SRT_OVERLAP_TOL = 0.001    # 자막 컷 겹침 허용(초)
 MEDIA_TOL = 0.5            # 미디어 길이 허용 오차(초)
+OPENING_TOL = 0.001        # 콜라주 오프닝 start == 0 판정 허용 오차(초)
+COLLAGE_MAX = 3            # 편당 콜라주 인서트 상한
 DUR_HEAD_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)")
 SRT_TIME_RE = re.compile(r"(\d+):(\d+):(\d+),(\d+)\s*-->\s*(\d+):(\d+):(\d+),(\d+)")
 ST_ENTRY_RE = re.compile(r"\{\s*t:\s*([0-9.]+)\s*,\s*s:\s*(\d+)\s*(?:,\s*g:\s*(\d+))?\s*\}")
@@ -142,6 +147,21 @@ def run(timeline_path, media: bool = True, skip_capture: bool = False) -> list:
     for a, b in zip(ordered, ordered[1:]):
         if b["start"] < a["end"] - 0.001:
             errors.append(f"D: 오버레이 {a['n']}↔{b['n']} 구간 겹침")
+
+    # F. 콜라주 오프닝 (본편) — 첫 장면은 반드시 콜라주 (SKILL.md Step 6.7, 2026-08-18)
+    if tl.get("type", "main") == "main":
+        collages = [o for o in overlays if o.get("style") == "collage"]
+        has_opening = any(abs(float(o["start"])) <= OPENING_TOL for o in collages)
+        if not has_opening:
+            msg = ("F: 콜라주 오프닝 인서트 없음 — 본편 첫 장면(t=0)은 style=\"collage\"·start=0.0 오버레이여야 함 "
+                   "(SKILL.md Step 6.7 '오프닝 콜라주 필수')")
+            waiver = tl.get("opening_collage_waiver")
+            if waiver:
+                print(f"[경고] {msg} — waiver 적용: {waiver}")
+            else:
+                errors.append(msg)
+        if len(collages) > COLLAGE_MAX:
+            errors.append(f"F: 콜라주 인서트 {len(collages)}개 > 상한 {COLLAGE_MAX} (오프닝 1 + 본문 1~2)")
 
     # E. 미디어 길이
     if media:

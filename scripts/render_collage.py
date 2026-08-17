@@ -10,6 +10,9 @@ cutout-collage-lab(페이퍼 컷아웃 콜라주, Remotion)으로 렌더해 04_�
   ① 실패담·에피소드 서사(사물이 하나씩 붙으며 이야기가 쌓임) ② 항목 나열·비교(2~3개)
   ③ 수치·비율(종이 파이·막대). 화면 시연·코드 설명·추상 개념 구간은 금지.
   편당 2~3개(오너 확정 2026-08-17 — 전 구간 콜라주 금지), 인서트 합계 ≤ 러닝타임 25%.
+  🔒 오프닝 필수(오너 결정 2026-08-18): 영상의 첫 장면(t=0)은 반드시 콜라주 인서트로 연다 —
+  시청 시작 시 후킹·몰입. video_overlays에 style=="collage"·start==0.0 항목이 없으면 중단.
+  개수 게이트: 오프닝 1 + 본문 1~2 = 2~3개. 4개 이상은 중단, 1개(오프닝만)는 경고.
 
 타임라인 스키마 확장 (video_overlays[] 항목):
   {"n": 2, "src": "04_영상소스/ov2.mp4", "start": 63.2, "end": 106.6,
@@ -37,6 +40,9 @@ for _s in (sys.stdout, sys.stderr):
 LAB = pathlib.Path.home() / "Desktop" / "공유 프로젝트" / "cutout-collage-lab"
 DUR_TOL = 0.05          # 씬 duration 합 ↔ 오버레이 구간 허용 오차(초)
 INSERT_MAX_RATIO = 0.25  # 콜라주 인서트 합계 ≤ 러닝타임 25% (가드)
+OPENING_TOL = 0.001      # 오프닝 인서트 start == 0 판정 허용 오차(초)
+COUNT_MAX = 3            # 편당 콜라주 인서트 상한 (오프닝 1 + 본문 ≤2)
+COUNT_MIN = 2            # 권장 하한 (미만이면 경고 — 오프닝만 있는 편)
 
 
 def _scene_total(scene: dict) -> float:
@@ -94,6 +100,18 @@ def main() -> None:
     targets = [o for o in (tl.get("video_overlays") or []) if o.get("style") == "collage"]
     if not targets:
         sys.exit("[중단] style=='collage'인 video_overlays 항목이 없습니다.")
+
+    if tl.get("type", "main") == "main":
+        # 🔒 오프닝 게이트 — 첫 장면(t=0)은 반드시 콜라주 (SKILL.md Step 6.7, 2026-08-18)
+        if not any(abs(float(o["start"])) <= OPENING_TOL for o in targets):
+            firsts = ", ".join(f"ov{o['n']}@{float(o['start']):.2f}s" for o in sorted(targets, key=lambda o: o["start"]))
+            sys.exit("[중단] 콜라주 오프닝 인서트 없음 — 영상의 첫 장면(t=0)은 반드시 콜라주로 시작해야 합니다 "
+                     f"(현재 콜라주: {firsts}). video_overlays에 start=0.0 · style=\"collage\" 항목을 추가하세요 "
+                     "(SKILL.md Step 6.7 '오프닝 콜라주 필수')")
+    if len(targets) > COUNT_MAX:
+        sys.exit(f"[중단] 콜라주 인서트 {len(targets)}개 > 상한 {COUNT_MAX} — 오프닝 1 + 본문 1~2개만 (SKILL.md Step 6.7)")
+    if len(targets) < COUNT_MIN:
+        print(f"[경고] 콜라주 인서트 {len(targets)}개 — 권장은 오프닝 1 + 본문 1~2 = 2~3개입니다 (본문 대목이 없으면 그대로 진행)")
 
     duration = float(tl.get("duration") or 0)
     insert_sum = sum(float(o["end"]) - float(o["start"]) for o in targets)

@@ -13,7 +13,7 @@
 
 | 단계 | 스킬 | 산출물 |
 |------|------|--------|
-| 1. 본편 소스 | `youtube-editor` | 16:9 슬라이드 HTML + 자막 SRT + 편집지시서/타임라인.json + capture.mp4 + CapCut 드래프트 (+ 사용자 제공 `영상 소스/` 있으면 오버레이 ov<n>.mp4 배속 인코딩 → 4트랙). 마무리로 대본 끝에 '영상 요약'(Step 9)과 '썸네일 생성 프롬프트'(Step 9-2) 섹션 append |
+| 1. 본편 소스 | `youtube-editor` | 16:9 슬라이드 HTML + 자막 SRT + 편집지시서/타임라인.json + capture.mp4 + **콜라주 인서트 ov<n>.mp4(오프닝 t=0 필수 + 본문 1~2개, Step 6.7)** + CapCut 드래프트 4트랙 (+ 사용자 제공 `영상 소스/` 있으면 실사 오버레이 배속 인코딩). 마무리로 대본 끝에 '영상 요약'(Step 9)과 '썸네일 생성 프롬프트'(Step 9-2) 섹션 append |
 | 2. 쇼츠 소스 | `youtube-short-generator` | 9:16 슬라이드 HTML + 쇼츠 SRT + 컷지시서/타임라인.json + capture.mp4 + CapCut 드래프트 |
 | 3. 쇼츠 리믹스 | `shorts-remix` | 완성 롱폼 mp4(영상 모음 등)를 입력으로 검은띠+헤드카피 9:16 완성형 쇼츠 mp4 (`scripts/remix_shorts.py` 렌더, 자막 번인). ⚠️ STT는 반드시 원본 mp4 추출 오디오 기준(타임베이스 계약), 검은띠 `#0A0A0A`는 design.md 흰 배경 규정의 예외(리믹스 프레임 한정, 2026-08-13 신설) |
 
@@ -29,7 +29,8 @@
 2. **동일 타임베이스** — 3자료는 t=0(음성 시작, 쇼츠는 첫 컷 시작)을 공유한다. 영상 소스에는 transcript 기준 `SLIDE_TIMELINE`을 임베드해 **캡처 모드**(`?capture=1`, `scripts/capture_slides.py` 헤드리스 통녹화)로 캡처하면 자막·음성과 싱크가 일치한다 (수동 폴백: A → SPACE 화면 녹화).
 3. **기계용 동기화 데이터** — 편집지시서/컷지시서(사람용)와 함께 `타임라인.json`(슬라이드 타임코드 + 쇼츠 audio_cuts + 선택 `video_overlays`)을 항상 생성한다. SRT·SLIDE_TIMELINE·타임라인.json의 타임코드는 값이 일치해야 하며(불일치 = 싱크 깨짐), 이 일치는 **`scripts/validate_pipeline.py`가 기계 검증**한다 — 캡처·조립 스크립트가 시작 시 자동 실행하고 위반이면 중단(fail-loud).
 4. **영상 소스 오버레이(선택)** — 사용자 제공 시연/실사 영상(`영상 소스/N.mp4`)은 transcript 실측으로 구간을 확정하고(`video_overlays`), `scripts/encode_overlays.py`가 컷 없이 **배속만**으로 구간 길이에 맞춰 `ov<n>.mp4`를 만든 뒤, 조립(assemble_capcut.py)이 슬라이드 위 별도 트랙에 얹는다(겹치는 자막은 흰색). 오디오·자막 타임코드는 불변.
-5. ⏸ **화이트보드 드로잉 장면 — 비활성(2026-08-16 오너 결정, 제안·사용 금지; 켜는 법 = `scripts/whiteboard/README.md`)**. 켜져 있을 때의 규칙: 수치 없는 스토리·비유 대목에 한해 `scripts/render_whiteboard.py`로 4색 선화가 그려지는 클립(`wb<n>.mp4`)을 만들어 같은 오버레이 트랙에 `style: "whiteboard"`로 얹는다(자막은 잉크색 유지). 🔒 영상당 1~3장면. 규칙 = design.md §4 렉시콘 + `템플릿/whiteboard/README.md`, 롤백 = `scripts/whiteboard/README.md`.
+5. **콜라주 인서트 — 오프닝 필수(2026-08-18 오너 결정) + 편당 2~3개**: 본편의 **가장 첫 장면(t=0)은 반드시 페이퍼 컷아웃 콜라주 인서트**로 연다(시청 시작 시 후킹·몰입 — 흰 슬라이드 타이틀로 시작하지 않는다). 편당 콜라주 = 오프닝 1개(필수, `start: 0.0`) + 본문 1~2개(실패담·나열/비교·수치 대목), 합계 ≤ 러닝타임 25%. 대본 `04_영상소스/collage/cg<n>.json` → `scripts/render_collage.py`(엔진 = `공유 프로젝트/cutout-collage-lab`) → `ov<n>.mp4`를 오버레이 트랙에 `style: "collage"`로 얹는다. 오프닝 부재·4개 이상·25% 초과는 `render_collage.py`·`validate_pipeline.py`(검사 F)가 기계로 막는다. 규칙 = youtube-editor Step 6.7 + design.md §4.
+6. ⏸ **화이트보드 드로잉 장면 — 비활성(2026-08-16 오너 결정, 제안·사용 금지; 켜는 법 = `scripts/whiteboard/README.md`)**. 켜져 있을 때의 규칙: 수치 없는 스토리·비유 대목에 한해 `scripts/render_whiteboard.py`로 4색 선화가 그려지는 클립(`wb<n>.mp4`)을 만들어 같은 오버레이 트랙에 `style: "whiteboard"`로 얹는다(자막은 잉크색 유지). 🔒 영상당 1~3장면. 규칙 = design.md §4 렉시콘 + `템플릿/whiteboard/README.md`, 롤백 = `scripts/whiteboard/README.md`.
 
 ## 결과물 폴더 규약 (모든 산출물의 저장 위치)
 
@@ -68,7 +69,7 @@
 
 - Windows 환경에서는 `python3` 명령이 없을 수 있다 — `python` 또는 `py -3`로 폴백한다.
 - 슬라이드 HTML은 브라우저에서 열어 확인한다 (Remotion/Node 빌드 불필요). `리모션/`은 렌더러 전환 평가용 샌드박스(2026-06-11, 전환 보류 결론)로 현행 파이프라인 소속이 아니다 — 결론·재검토 트리거는 `리모션/README.md` 참조.
-- 공용 에셋: `레퍼런스/로고/`(자주 쓰는 제품 로고), `레퍼런스/교정사전.json`(Whisper 오인식 영구 교정 사전 — 문맥 무관 항목만 등재), `템플릿/`(슬라이드 보일러플레이트), `scripts/`(캡처·드래프트 조립·자막 16자 분할 `split_captions.py`·오인식 교정 `apply_corrections.py`·무음 컷 `trim_silence.py`·오버레이 배속 인코딩 `encode_overlays.py`·조립 재료 스테이징 `stage_capcut_kit.py`·싱크 계약 검증 `validate_pipeline.py`·자막 안전 영역 검사 `check_caption_safe.py`(본편 캡처 전 자동 게이트)·대본 구조/사실 게이트 `check_script.py`·레퍼런스 모션 문법 분석 `analyze_motion.py`(선택)·화이트보드 드로잉 렌더 `render_whiteboard.py`(선택, 엔진 `scripts/whiteboard/` vendored MIT)·환경 진단 `doctor.py`).
+- 공용 에셋: `레퍼런스/로고/`(자주 쓰는 제품 로고), `레퍼런스/교정사전.json`(Whisper 오인식 영구 교정 사전 — 문맥 무관 항목만 등재), `템플릿/`(슬라이드 보일러플레이트), `scripts/`(캡처·드래프트 조립·자막 16자 분할 `split_captions.py`·오인식 교정 `apply_corrections.py`·무음 컷 `trim_silence.py`·오버레이 배속 인코딩 `encode_overlays.py`·조립 재료 스테이징 `stage_capcut_kit.py`·싱크 계약 검증 `validate_pipeline.py`·자막 안전 영역 검사 `check_caption_safe.py`(본편 캡처 전 자동 게이트)·대본 구조/사실 게이트 `check_script.py`·레퍼런스 모션 문법 분석 `analyze_motion.py`(선택)·콜라주 인서트 렌더 `render_collage.py`(오프닝 필수, 엔진 = 별도 레포 cutout-collage-lab)·화이트보드 드로잉 렌더 `render_whiteboard.py`(선택, 엔진 `scripts/whiteboard/` vendored MIT)·환경 진단 `doctor.py`).
 - pip 의존성은 `requirements.txt`의 검증 버전으로 고정한다. 새 기기·원인 불명 실패 시 `python scripts/doctor.py`부터.
 - CapCut 자동화 의존성(pip): `pycapcut`, `playwright`(+`python -m playwright install chromium`), `imageio-ffmpeg`. 드래프트 조립 시 CapCut은 닫혀 있어야 하고, 국제판 비암호화 버전(9.x, 2026-05 확인)을 유지한다 — **CapCut 자동 업데이트 OFF**.
 
