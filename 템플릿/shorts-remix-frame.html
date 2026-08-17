@@ -1,0 +1,159 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>쇼츠 리믹스 프레임 (1080x1920 오버레이)</title>
+  <style>
+    /* ============================================================
+       쇼츠 리믹스 프레임 — scripts/remix_shorts.py 전용 오버레이 소스
+       (롱폼 원본을 세로로 리믹스할 때 위·아래에 얹는 검정 띠 + 헤드카피)
+
+       ⚠️ 이 파일만 예외적으로 검정 배경(#0A0A0A)을 쓴다.
+          CLAUDE.md의 "영상 소스에 검정 배경 금지"는 슬라이드(영상 소스) 규칙이고,
+          여기는 원본 실사 영상을 감싸는 리믹스 프레임(레터박스 띠)이라 대상이 다르다.
+
+       ── 어떻게 쓰이나 ─────────────────────────────────────────
+       Playwright headless가 1080x1920 뷰포트로 열어 omit_background(투명 PNG)로 찍는다.
+       body가 투명이므로 가운데 구멍(y 500~1108)은 알파 0으로 남고, ffmpeg overlay를
+       최상단에 얹으면 그 구멍으로 원본 영상이 그대로 비친다.
+       → "투명 구멍"은 CSS로 뚫는 게 아니라, 애초에 위·아래 블록만 칠해서 만든다.
+
+       ── 좌표 계약 (remix_shorts.py와 반드시 동기화) ───────────
+         상단 블록  y   0 ~  500  (#0A0A0A)   ← 헤드카피 자리(y 200~500). 고정.
+         영상 구멍  y  ht ~   hb  (투명)      ← ht=video_y, hb=video_y+영상높이
+                                              extract 16:9: 500~1108 (1080x608, 기본값)
+                                              capture 재생성 소스: 500~1200 (1080x700)
+         하단 블록  y  hb ~ 1920  (#0A0A0A)   ← 자막 번인 자리(ASS MarginV 590 → 하단선 y≈1330)
+
+       ── 쿼리 파라미터 ────────────────────────────────────────
+         ?l1=첫줄&l2=둘째줄&em=강조어1,강조어2   헤드카피 모드 (l2 생략 = 1줄)
+         ?ht=500&hb=1200                        영상 구멍 경계 (생략 시 500 / 1108)
+         ?cta=1&text=풀버전은 채널에             CTA 엔드카드 모드 (전체 불투명)
+       window.FRAME_DATA = {lines:[...], accent_words:[...], cta:false, text:''} 주입도 지원한다
+       (쿼리보다 우선). 스크립트가 임시 HTML을 만들 필요 없이 쿼리만 넘기면 된다.
+    ============================================================ */
+    :root {
+      --bg-frame: #0A0A0A;                 /* 프레임 띠 색 (계획 JSON canvas.bg와 동일 값) */
+      --accent: #F59E0B;                   /* 주 강조 앰버 — design.md §2-3 SSOT */
+      --font-sans: "Pretendard Variable", Pretendard, "Noto Sans KR", sans-serif;
+      --hole-top: 500px;                   /* = video_y */
+      --hole-bottom: 1108px;               /* = video_y + 608 (16:9 소스의 1080폭 높이) */
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      width: 1080px; height: 1920px;
+      background: transparent;             /* ★ omit_background 스크린샷의 전제 — 절대 칠하지 않는다 */
+      overflow: hidden;
+    }
+    body {
+      font-family: var(--font-sans);
+      -webkit-font-smoothing: antialiased;
+      word-break: keep-all; overflow-wrap: break-word;
+    }
+
+    /* ── 위·아래 띠 (여기만 불투명) ───────────────────────────── */
+    .band { position: absolute; left: 0; width: 1080px; background: var(--bg-frame); }
+    .band--top    { top: 0;                 height: var(--hole-top); }
+    .band--bottom { top: var(--hole-bottom); height: calc(1920px - var(--hole-bottom)); }
+
+    /* ── 헤드카피 (상단 띠 안, y 200~500 블록의 세로 중앙) ───── */
+    .head {
+      position: absolute; left: 0; top: 200px; width: 1080px; height: 300px;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      padding: 0 60px; text-align: center;
+      color: #ffffff; font-weight: 900;
+      letter-spacing: -0.02em; line-height: 1.25;
+      text-wrap: balance;
+    }
+    .head .line { display: block; width: 100%; }
+    .head em { font-style: normal; color: var(--accent); }
+
+    /* ── CTA 엔드카드 모드: 캔버스 전체 불투명 + 중앙 텍스트 ── */
+    body.cta .band { display: none; }
+    .cta-card {
+      display: none;
+      position: absolute; inset: 0;
+      background: var(--bg-frame); color: #ffffff;
+      align-items: center; justify-content: center; text-align: center;
+      padding: 0 90px;
+      font-size: 72px; font-weight: 900; line-height: 1.3; letter-spacing: -0.02em;
+      text-wrap: balance;
+    }
+    body.cta .cta-card { display: flex; }
+    .cta-card em { font-style: normal; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="band band--top"></div>
+  <div class="band band--bottom"></div>
+  <div class="head" id="head"></div>
+  <div class="cta-card" id="cta"></div>
+
+  <script>
+    /* 데이터 소스: window.FRAME_DATA(주입) > URL 쿼리. 둘 다 없으면 빈 프레임(띠만). */
+    (function () {
+      var q = new URLSearchParams(location.search);
+      var d = window.FRAME_DATA || {
+        lines: [q.get('l1'), q.get('l2')].filter(function (v) { return v && v.trim(); }),
+        accent_words: (q.get('em') || '').split(',').map(function (s) { return s.trim(); })
+                        .filter(Boolean),
+        cta: q.get('cta') === '1',
+        text: q.get('text') || ''
+      };
+      var lines = (d.lines || []).filter(function (v) { return v && String(v).trim(); });
+      var words = (d.accent_words || []).filter(Boolean);
+
+      /* 영상 구멍 경계 — 넘기지 않으면 CSS 기본값(500 / 1108 = 16:9 extract)을 그대로 쓴다. */
+      var ht = parseInt(d.hole_top != null ? d.hole_top : q.get('ht'), 10);
+      var hb = parseInt(d.hole_bottom != null ? d.hole_bottom : q.get('hb'), 10);
+      if (ht > 0) document.documentElement.style.setProperty('--hole-top', ht + 'px');
+      if (hb > 0) document.documentElement.style.setProperty('--hole-bottom', hb + 'px');
+
+      function esc(s) {
+        return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+      }
+      /* 강조어를 <em>으로 감싼다 — 이스케이프 후 치환이라 원문에 태그가 있어도 주입되지 않는다.
+         긴 단어부터 치환해야 부분 문자열이 먼저 먹히지 않는다. */
+      function mark(text) {
+        var out = esc(text);
+        words.slice().sort(function (a, b) { return b.length - a.length; }).forEach(function (w) {
+          var e = esc(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+          if (e) out = out.replace(new RegExp(e, 'g'), '<em>$&</em>');
+        });
+        return out;
+      }
+
+      if (d.cta) {
+        document.body.classList.add('cta');
+        document.getElementById('cta').innerHTML = mark(d.text || '');
+        document.documentElement.dataset.frameReady = '1';
+        return;
+      }
+
+      var head = document.getElementById('head');
+      /* 기본 80px, 2줄이면 72px로 자동 축소 (상단 300px 블록 안에 2줄 = 72×1.25×2 = 180px) */
+      head.style.fontSize = (lines.length >= 2 ? 72 : 80) + 'px';
+      head.innerHTML = lines.map(function (l) {
+        return '<span class="line">' + mark(l) + '</span>';
+      }).join('');
+
+      /* 안전장치: 그래도 블록을 넘치면(줄당 15자 권장 초과 등) 넘치지 않을 때까지 4px씩 줄인다.
+         조용히 잘리는 것보다 작아지는 편이 낫다 — 캡처 스크립트는 넘침을 볼 수 없다.
+         폰트 로드 전에 재면 폭이 틀리므로 반드시 fonts.ready 이후에 잰다. */
+      var fit = function () {
+        var size = parseInt(head.style.fontSize, 10);
+        while (size > 48 && head.scrollHeight > head.clientHeight) {
+          size -= 4;
+          head.style.fontSize = size + 'px';
+        }
+        document.documentElement.dataset.frameReady = '1';
+      };
+      if (document.fonts && document.fonts.ready) {
+        document.fonts.ready.then(fit);
+      } else {
+        fit();
+      }
+    })();
+  </script>
+</body>
+</html>

@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+  <meta charset="UTF-8">
+  <title>PULLING 쇼츠 리믹스 소스 — (제목)</title>
+  <link rel="preconnect" href="https://cdn.jsdelivr.net">
+  <link rel="stylesheet" as="style" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+  <style>
+    /* ============================================================
+       PULLING 쇼츠 리믹스 "재생성 소스" 보일러플레이트 (1080x700 — design.md SSOT)
+
+       ── 무엇인가 ─────────────────────────────────────────────
+       리믹스 쇼츠(1080x1920 검은 캔버스)의 **영상 슬롯**(y 500~1200)에 들어갈 슬라이드다.
+       원본 롱폼 픽셀을 잘라 넣는 대신 이걸 새로 그려 캡처하면 ① 원본에 박힌 자막과
+       리믹스 자막이 겹치지 않고 ② 16:9(1080x608)보다 큰 1080x700을 꽉 채운다.
+
+       ── 파이프라인 ───────────────────────────────────────────
+       1) 이 파일을 복제해 슬라이드를 짜고 SLIDE_TIMELINE을 나레이션(SRT)에 맞춘다
+       2) python scripts/capture_remix_source.py source.html --duration <컷합> --out source-capture.mp4
+          (뷰포트 1080x700로 레이아웃, 2배인 2160x1400으로 캡처 — 다운스케일은 렌더가 한다)
+       3) remix.json에 "video": {"mode":"capture", "path":"source-capture.mp4", "h":700}
+       4) python scripts/remix_shorts.py remix.json
+
+       ── 규칙 ────────────────────────────────────────────────
+       · 흰 배경 + 잉크 + 앰버(주) + 그린(보조) 4색 — 검정 배경 금지(여긴 띠가 아니라 슬라이드다)
+       · 자막 안전영역 패딩 불필요 — 번인 자막은 이 소스 **밖**(검은 띠, y 1250~1330)에 있다.
+         대신 가장자리 40px 세이프 마진만 지킨다.
+       · 텍스트 최소 크기: 본문 40px, 라벨 28px (1080x700 기준 — 폰에서 읽혀야 한다)
+       · 내용은 나레이션이 말하는 것만 그린다. 새 주장·새 수치를 그림으로 추가하지 않는다.
+    ============================================================ */
+    :root {
+      --bg-page: #ffffff; --bg-surface: #f7f6f4; --bg-elevated: #efeeea;
+      --bg-border: rgba(20,20,19,0.08); --bg-border-strong: rgba(20,20,19,0.14);
+      --text-primary: #141413; --text-secondary: #5e5d59; --text-tertiary: #a39e98;
+      --accent: #F59E0B; --accent-text: #D97706;
+      --accent-subtle: rgba(245,158,11,0.10); --accent-ring: rgba(245,158,11,0.25);
+      --green: #16a34a; --green-soft: rgba(22,163,74,0.08); --green-ring: rgba(22,163,74,0.22);
+      --shadow-card: 0 1px 2px rgba(20,20,19,0.04), 0 4px 14px rgba(20,20,19,0.04);
+      --shadow-elevated: 0 2px 4px rgba(20,20,19,0.05), 0 12px 32px rgba(20,20,19,0.06);
+      --font-sans: 'Pretendard', 'Noto Sans KR', system-ui, -apple-system, sans-serif;
+      --safe: 40px;                      /* 가장자리 세이프 마진 */
+      --slide-duration: 0.45s;
+      --slide-easing: cubic-bezier(0.25, 0.46, 0.45, 0.94);
+      --stagger-delay: 80ms;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body { width: 1080px; height: 700px; overflow: hidden; }
+    body {
+      font-family: var(--font-sans); background: var(--bg-page); color: var(--text-primary);
+      -webkit-font-smoothing: antialiased; word-break: keep-all; overflow-wrap: break-word;
+    }
+    strong { color: var(--accent-text); font-weight: 800; }
+    em { font-style: normal; color: var(--accent); }
+    .nobr { white-space: nowrap; }
+
+    /* ── 슬라이드 골격 ───────────────────────────────────────── */
+    #stage { position: relative; width: 1080px; height: 700px; }
+    .slide {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column; justify-content: center; align-items: center;
+      gap: 28px; text-align: center; padding: var(--safe);
+      opacity: 0; transform: translateY(28px);
+      transition: opacity var(--slide-duration) ease, transform var(--slide-duration) var(--slide-easing);
+      z-index: 0;
+    }
+    .slide.active { opacity: 1; transform: translateY(0); z-index: 2; }
+    .slide.prev { opacity: 0; transform: translateY(-28px); z-index: 1; }
+    /* 앞 슬라이드와 레이아웃이 거의 같을 때(강조만 이동, 리스트 한 줄 추가) 슬라이드 이동을
+       빼고 크로스페이드만 한다 — 같은 그림이 위아래로 튀면 글리치로 보인다. */
+    .slide--soft, .slide--soft.prev { transform: none; }
+
+    .el { opacity: 0; transform: translateY(14px);
+          transition: opacity 0.4s ease, transform 0.4s ease;
+          transition-delay: calc(var(--i, 0) * var(--stagger-delay)); }
+    .slide.active .el { opacity: 1; transform: translateY(0); }
+    .slide:not(.active) .el { transition-delay: 0ms; }
+    .slide.active .el--pop { transition: none;
+      animation: elPop 0.5s cubic-bezier(0.34,1.56,0.64,1) both;
+      animation-delay: calc(var(--i,0) * var(--stagger-delay) + 0.1s); }
+    @keyframes elPop { 0% { transform: translateY(10px) scale(0.9); opacity: 0; }
+                       65% { transform: translateY(-2px) scale(1.03); opacity: 1; }
+                       100% { transform: translateY(0) scale(1); opacity: 1; } }
+    /* 훅 전용 슬램 — 영상당 1~2회 (모션 렉시콘 게이트) */
+    .slide.active .slam { animation: slam 0.35s var(--slide-easing) both; }
+    @keyframes slam { 0% { transform: scale(1.18); opacity: 0; }
+                      60% { transform: scale(0.98); opacity: 1; }
+                      100% { transform: scale(1); opacity: 1; } }
+    /* 강조 preset — 한 슬라이드에 1종만 */
+    .hl-sweep { background-image: linear-gradient(var(--accent-subtle), var(--accent-subtle));
+      background-repeat: no-repeat; background-size: 0% 82%; background-position: 0 62%;
+      border-radius: 4px; transition: background-size 0.6s var(--slide-easing);
+      transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.35s); }
+    .slide.active .hl-sweep { background-size: 100% 82%; }
+    .u-draw { position: relative; }
+    .u-draw::after { content: ''; position: absolute; left: 0; bottom: -0.06em; width: 100%;
+      height: 0.1em; background: var(--accent); border-radius: 999px;
+      transform: scaleX(0); transform-origin: left center;
+      transition: transform 0.6s var(--slide-easing);
+      transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.4s); }
+    .slide.active .u-draw::after { transform: scaleX(1); }
+    .draw-on { stroke-dasharray: 1; stroke-dashoffset: 1;
+      transition: stroke-dashoffset 0.9s var(--slide-easing);
+      transition-delay: calc(var(--i, 0) * var(--stagger-delay) + 0.35s); }
+    .slide.active .draw-on { stroke-dashoffset: 0; }
+
+    /* ── 타이포 (1080x700 기준 px 고정 — 뷰포트가 고정이라 clamp 불필요) ── */
+    .label { display: inline-block; font-size: 28px; font-weight: 700; letter-spacing: 0.16em;
+      color: var(--accent-text); background: var(--accent-subtle);
+      padding: 8px 18px; border-radius: 6px; }
+    .label--green { color: var(--green); background: var(--green-soft); }
+    .label--muted { color: var(--text-secondary); background: var(--bg-elevated); }
+    .headline { font-size: 68px; font-weight: 900; letter-spacing: -0.03em; line-height: 1.18;
+      text-wrap: balance; max-width: 980px; }
+    .headline--sm { font-size: 56px; }
+    .impact { font-size: 88px; font-weight: 900; letter-spacing: -0.04em; line-height: 1.1;
+      text-wrap: balance; }
+    .sub { font-size: 40px; font-weight: 600; color: var(--text-secondary); line-height: 1.45;
+      text-wrap: balance; max-width: 900px; }
+    .note { font-size: 30px; font-weight: 600; color: var(--text-tertiary); }
+
+    /* ── 프롬프트/인용 카드 (전문을 그대로 보여줄 때) ───────── */
+    .card {
+      width: 100%; max-width: 1000px; background: var(--bg-page);
+      border: 1px solid var(--bg-border-strong); border-radius: 18px;
+      box-shadow: var(--shadow-elevated); overflow: hidden; text-align: left;
+    }
+    .card__bar { display: flex; align-items: center; gap: 10px;
+      padding: 14px 22px; background: var(--bg-surface); border-bottom: 1px solid var(--bg-border); }
+    .card__dot { width: 13px; height: 13px; border-radius: 50%; background: var(--bg-border-strong); }
+    .card__tag { margin-left: auto; font-size: 22px; font-weight: 800; letter-spacing: 0.18em;
+      color: var(--text-tertiary); }
+    .card__body { padding: 26px 32px; font-size: 40px; font-weight: 600; line-height: 1.5; }
+    /* 강조 테두리 카드 (기준·핵심 한 줄) */
+    .card--accent { border: 3px solid var(--accent-ring); box-shadow: var(--shadow-card); }
+    .card--accent .card__body { text-align: center; }
+
+    /* ── 흐름 칩 (A → B → C) ─────────────────────────────────── */
+    .flow { display: flex; align-items: stretch; justify-content: center; gap: 18px; width: 100%; }
+    .chip { flex: 1; max-width: 300px; background: var(--bg-surface);
+      border: 1px solid var(--bg-border); border-radius: 16px; padding: 24px 22px;
+      text-align: left; box-shadow: var(--shadow-card);
+      display: flex; flex-direction: column; justify-content: center; gap: 8px; }
+    .chip--accent { background: var(--bg-page); border-color: var(--accent); }
+    .chip--green { background: var(--green-soft); border-color: var(--green-ring); }
+    .chip__num { font-size: 24px; font-weight: 800; color: var(--text-tertiary); }
+    .chip--accent .chip__num { color: var(--accent-text); }
+    .chip__text { font-size: 36px; font-weight: 800; line-height: 1.3; }
+    .flow__arrow { align-self: center; font-size: 34px; color: var(--text-tertiary); }
+
+    /* ── 세로 번호 리스트 (해법·결과 나열) ──────────────────── */
+    .list { display: flex; flex-direction: column; gap: 18px; width: 100%; max-width: 900px;
+      text-align: left; }
+    .list__row { display: flex; align-items: center; gap: 22px;
+      background: var(--bg-surface); border: 1px solid var(--bg-border);
+      border-radius: 16px; padding: 18px 26px; }
+    .list__num { width: 52px; height: 52px; flex-shrink: 0; border-radius: 50%;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 28px; font-weight: 900; background: var(--accent); color: #fff; }
+    .list__row--check .list__num { background: var(--green); }
+    .list__text { font-size: 40px; font-weight: 700; line-height: 1.3; }
+
+    /* ── 좌우 대비 카드 (혼자 볼 것 vs 남한테 가는 것) ───────── */
+    .compare { display: flex; gap: 24px; width: 100%; max-width: 1000px; align-items: stretch; }
+    .pane { flex: 1; border-radius: 18px; padding: 26px 28px; text-align: left;
+      box-shadow: var(--shadow-card); display: flex; flex-direction: column; gap: 14px; }
+    .pane--neutral { background: var(--bg-surface); border: 1px solid var(--bg-border-strong); }
+    .pane--green { background: var(--green-soft); border: 1px solid var(--green-ring); }
+    .pane__title { font-size: 40px; font-weight: 900; line-height: 1.25; }
+    .pane__item { font-size: 30px; font-weight: 600; color: var(--text-secondary);
+      display: flex; gap: 10px; align-items: baseline; }
+    .pane__item i { font-style: normal; font-weight: 900; }
+    .pane--neutral .pane__item i { color: var(--text-primary); }
+    .pane--green .pane__item i { color: var(--green); }
+
+    /* ── 큰 숫자 카드 ────────────────────────────────────────── */
+    .stat { background: var(--bg-surface); border: 1px solid var(--bg-border);
+      border-radius: 20px; padding: 24px 64px; box-shadow: var(--shadow-card); }
+    .stat__label { font-size: 28px; font-weight: 700; letter-spacing: 0.14em;
+      color: var(--text-secondary); }
+    .stat__value { font-size: 128px; font-weight: 900; line-height: 1.05;
+      font-variant-numeric: tabular-nums; letter-spacing: -0.04em; }
+    .stat__value span { font-size: 52px; font-weight: 800; margin-left: 6px; }
+
+    /* ── 말풍선 반복 (같은 말만 되풀이) ─────────────────────── */
+    .bubbles { display: flex; flex-direction: column; align-items: center; gap: 14px; }
+    .bubble { font-size: 34px; font-weight: 700; padding: 14px 30px; border-radius: 14px;
+      background: var(--bg-elevated); }
+    .bubble--last { background: var(--accent-subtle); color: var(--accent-text); }
+
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
+    }
+  </style>
+</head>
+<body>
+  <div id="stage">
+
+    <!-- 1. 훅 (예시 — 실제 슬라이드로 교체) -->
+    <section class="slide" data-slide>
+      <span class="label el" style="--i:0">라벨</span>
+      <p class="headline slam">훅 문구를 <em>여기에</em></p>
+      <p class="sub el" style="--i:2">보조 설명 한 줄</p>
+    </section>
+
+    <!-- 2. 흐름 칩 (예시) -->
+    <section class="slide" data-slide>
+      <p class="headline headline--sm el" style="--i:0">이렇게 <em>흐른다</em></p>
+      <div class="flow el" style="--i:1">
+        <div class="chip"><span class="chip__num">1</span><span class="chip__text">첫 단계</span></div>
+        <span class="flow__arrow">→</span>
+        <div class="chip"><span class="chip__num">2</span><span class="chip__text">둘째 단계</span></div>
+        <span class="flow__arrow">→</span>
+        <div class="chip chip--accent"><span class="chip__num">3</span><span class="chip__text">결과</span></div>
+      </div>
+    </section>
+
+  </div>
+
+  <script>
+    const slides = Array.from(document.querySelectorAll('[data-slide]'));
+    let idx = -1;
+    function go(n) {
+      if (n < 0 || n >= slides.length || n === idx) return;
+      slides.forEach((s, i) => { s.classList.toggle('active', i === n); s.classList.toggle('prev', i < n); });
+      idx = n;
+    }
+
+    /* ============ SLIDE_TIMELINE ============
+       t = 쇼츠 타임라인 초 (컷·콘캣 이후 기준 = SRT와 같은 시계), s = 슬라이드 인덱스(0부터).
+       대략 3~6초에 1전환. 구/문장 경계에 맞춘다. 마지막 항목 이후는 그 슬라이드가 끝까지 유지된다. */
+    const SLIDE_TIMELINE = [
+      { t: 0.0, s: 0 },
+      { t: 5.0, s: 1 },
+    ];
+
+    /* ============ 캡처 모드 (?capture=1 — scripts/capture_remix_source.py) ============
+       seek(t): 외부가 프레임마다 호출 — 시계 없이 덱 상태를 직접 구동한다.
+       가상시간 + BeginFrame 제어 환경에서 rAF 시계가 멈춰도 타임라인이 정확히 적용된다. */
+    let seekApplied = -1;
+    window.__capture = {
+      ready: false,
+      seek(t) {
+        while (seekApplied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[seekApplied + 1].t <= t) {
+          seekApplied++; go(SLIDE_TIMELINE[seekApplied].s);
+        }
+      },
+    };
+    document.fonts.ready.then(() => { window.__capture.ready = true; });
+
+    /* 브라우저 육안 검수용: ?preview=N 으로 N번 슬라이드 고정, ← → 로 넘김 (캡처와 무관) */
+    const q = new URLSearchParams(location.search);
+    if (q.get('capture') !== '1') {
+      go(parseInt(q.get('preview') || '0', 10) || 0);
+      document.addEventListener('keydown', (e) => {
+        if (e.key === 'ArrowRight') go(idx + 1);
+        else if (e.key === 'ArrowLeft') go(idx - 1);
+      });
+    }
+    /* 캡처 모드에서는 여기서 go()를 부르지 않는다 — 첫 프레임의 seek(0)이 첫 슬라이드를 켜야
+       훅의 등장 애니메이션이 워밍업 프레임에 소모되지 않고 t=0부터 화면에 남는다. */
+  </script>
+</body>
+</html>
