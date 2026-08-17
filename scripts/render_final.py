@@ -74,6 +74,11 @@ RENDER_OUT = REMOTION / "out" / "final.mp4"
 # 상자가 어떤 배경에서도 가독성을 보장하므로 구간별 흰색 오버라이드는 폐지(전 컷 동일 스타일).
 # ASS 색은 &HAABBGGRR: 잉크(20,20,19)→&H00131414, 상자(253,254,254)→&H00FEFEFD,
 # 테두리(22,14,1)→&H00010E16, 그림자(59,38,3)→&H0003263B.
+# ── 오디오 트루피크 리미터 (2026-08-17) ──
+# 녹음 원본이 -0.1 dBTP까지 차 있어(입력 게인 과대) AAC 재인코딩·재생 DAC 오버슈트로 큰 소리에서
+# 찌그러진다(scripts/check_audio.py 실측). 렌더 시 -1 dBTP 리미터로 오버슈트만 막는다 — 라우드니스·
+# 타이밍 불변(룩어헤드 5ms는 ffmpeg가 보정), 이미 잘린 파형은 복원 못 함(근본 해결=재녹음).
+AUDIO_LIMITER = "alimiter=limit=0.891:attack=5:release=50:level=false"   # 0.891 = -1.0 dBFS
 ASS_FONT = "Pretendard"
 ASS_STYLE_INK = "&H00131414"
 ASS_BOX_FILL = "&H00FEFEFD"
@@ -353,7 +358,7 @@ def _short_audio_cuts(audio_cuts: list, audio_dur_s: float) -> list:
     return cuts
 
 
-def _build_short_filter(cuts: list, audio_idx: int, playres: tuple) -> str:
+def _build_short_filter(cuts: list, audio_idx: int, playres: tuple, limiter: bool = True) -> str:
     """쇼츠 filter_complex: 비디오 정규화+자막 굽기 + audio_cuts atrim/concat.
 
     오디오는 나레이션(입력 audio_idx)에서 각 컷 [src, src+dur]을 atrim으로 뽑아 asetpts로 t=0 리셋하고
@@ -367,7 +372,8 @@ def _build_short_filter(cuts: list, audio_idx: int, playres: tuple) -> str:
         a_parts.append(
             f"[{audio_idx}:a]atrim=start={src:.3f}:end={src + d:.3f},asetpts=PTS-STARTPTS[{lbl}]")
         labels.append(f"[{lbl}]")
-    a_parts.append("".join(labels) + f"concat=n={len(cuts)}:v=0:a=1[aout]")
+    a_parts.append("".join(labels) + f"concat=n={len(cuts)}:v=0:a=1[acat]")
+    a_parts.append(f"[acat]{AUDIO_LIMITER}[aout]" if limiter else "[acat]anull[aout]")
     return video_part + ";" + ";".join(a_parts)
 
 
@@ -418,14 +424,17 @@ def _pick_encoder(force_nvenc: bool, force_x264: bool) -> bool:
     return ok
 
 
-def _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nvenc):
+def _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nvenc, limiter=True):
     """ffmpeg argv 구성. 화질: libx264 crf17 preset medium (FinalVideo 렌더와 동급) / --nvenc는 cq19."""
     cmd = [ff, "-hide_banner", "-y", "-i", str(video)]
     for o in overlays:                               # ov 입력 순서 = filter의 [i:v] 순서와 반드시 일치
         cmd += ["-i", str(ov_files[o["n"]])]
     cmd += ["-i", str(audio)]
+    a_idx = 1 + len(overlays)                                    # 오디오 = 마지막 입력
+    if limiter:
+        filtergraph = f"{filtergraph};[{a_idx}:a]{AUDIO_LIMITER}[aout]"
     cmd += ["-filter_complex", filtergraph]
-    cmd += ["-map", "[vout]", "-map", f"{1 + len(overlays)}:a"]   # 오디오 = 마지막 입력
+    cmd += ["-map", "[vout]", "-map", "[aout]" if limiter else f"{a_idx}:a"]
     if nvenc:
         # h264_nvenc, cq 19 수준 (VBR, 비트레이트 상한 없음 → 품질 목표)
         cmd += ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "19", "-b:v", "0"]
@@ -458,7 +467,7 @@ def _resolve_out(base: pathlib.Path, out_arg, make_dir: bool) -> pathlib.Path:
     return dest_dir / "final.mp4"
 
 
-def _render_ffmpeg(base, tl, audio, srt, video, overlays, ov_files, out_arg, nvenc, dry_run):
+def _render_ffmpeg(base, tl, audio, srt, video, overlays, ov_files, out_arg, nvenc, dry_run, limiter=True):
     import imageio_ffmpeg
     ff = imageio_ffmpeg.get_ffmpeg_exe()             # encode_overlays.py와 동일한 ffmpeg 바이너리 획득 방식
 
@@ -476,10 +485,10 @@ def _render_ffmpeg(base, tl, audio, srt, video, overlays, ov_files, out_arg, nve
     print(f"       규격: {fontname} {fontsize}px · 하단 여백(MarginV) {margin_v}px · 좌우 {margin_lr}px")
 
     filtergraph = _build_filter(overlays, playres)
-    cmd = _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nvenc)
+    cmd = _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nvenc, limiter)
 
     engine_label = "h264_nvenc(cq19)" if nvenc else "libx264(crf17/medium)"
-    print(f"[ffmpeg] 엔진 {engine_label} · 입력 capture+ov{len(overlays)}+narration · cwd={JOB_DIR}")
+    print(f"[ffmpeg] 엔진 {engine_label} · 입력 capture+ov{len(overlays)}+narration · 리미터 {'-1 dBTP ON' if limiter else 'OFF'} · cwd={JOB_DIR}")
     print("[ffmpeg] 명령:")
     print("  " + " ".join(_shq(a) for a in cmd))
 
@@ -504,7 +513,7 @@ def _render_ffmpeg(base, tl, audio, srt, video, overlays, ov_files, out_arg, nve
     print("  (이 경로는 캡컷 검수를 생략한 선택지입니다 — 기본은 여전히 CapCut 드래프트 검수 후 내보내기)")
 
 
-def _render_ffmpeg_short(base, tl, audio, srt, video, out_arg, nvenc, dry_run):
+def _render_ffmpeg_short(base, tl, audio, srt, video, out_arg, nvenc, dry_run, limiter=True):
     """쇼츠(9:16) ffmpeg 경로 — 1080x1920 정규화 + audio_cuts atrim/concat + ASS 자막(쇼츠 규격).
 
     본편 _render_ffmpeg과 다른 점만: capture를 1080x1920으로 정규화, 오디오를 나레이션 전체가 아니라
@@ -534,7 +543,7 @@ def _render_ffmpeg_short(base, tl, audio, srt, video, out_arg, nvenc, dry_run):
     print(f"[자막] ASS 생성(쇼츠 9:16): {ass_path} (컷 {total_cap}개, 흰 상자 자막)")
     print(f"       규격: {fontname} {fontsize}px · PlayRes {playres[0]}x{playres[1]} · 하단 여백(MarginV) {margin_v}px · 좌우 {margin_lr}px")
 
-    filtergraph = _build_short_filter(cuts, audio_idx=1, playres=playres)   # 입력: 0=capture, 1=narration
+    filtergraph = _build_short_filter(cuts, audio_idx=1, playres=playres, limiter=limiter)   # 입력: 0=capture, 1=narration
     cmd = [ff, "-hide_banner", "-y", "-i", str(video), "-i", str(audio)]
     cmd += ["-filter_complex", filtergraph]
     cmd += ["-map", "[vout]", "-map", "[aout]"]
@@ -586,6 +595,8 @@ def main() -> None:
     ap.add_argument("--out", help="ffmpeg 엔진 출력 파일명/경로 (기본 완성본/final.mp4 — 비교 시 이름 분리용)")
     ap.add_argument("--dry-run", action="store_true",
                     help="ffmpeg 엔진: 검증·ASS 생성·명령 구성까지만 (인코딩 미실행)")
+    ap.add_argument("--no-limiter", action="store_true",
+                    help="오디오 -1 dBTP 트루피크 리미터 끄기 (기본 ON — 녹음 과입력 오버슈트 방지)")
     args = ap.parse_args()
 
     base = args.job.resolve()
@@ -622,12 +633,12 @@ def main() -> None:
         use_nvenc = _pick_encoder(args.nvenc, args.x264)   # 기본 = NVENC 자동(불가 시 x264 폴백)
     if kind == "short":
         _render_ffmpeg_short(base, tl, audio, srt, video,
-                             args.out, use_nvenc, args.dry_run)
+                             args.out, use_nvenc, args.dry_run, not args.no_limiter)
     elif args.engine == "remotion":
         _render_remotion(base, tl, audio, srt, video, overlays, ov_files)
     else:
         _render_ffmpeg(base, tl, audio, srt, video, overlays, ov_files,
-                       args.out, use_nvenc, args.dry_run)
+                       args.out, use_nvenc, args.dry_run, not args.no_limiter)
 
 
 if __name__ == "__main__":
