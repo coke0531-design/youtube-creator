@@ -74,11 +74,36 @@ RENDER_OUT = REMOTION / "out" / "final.mp4"
 # 상자가 어떤 배경에서도 가독성을 보장하므로 구간별 흰색 오버라이드는 폐지(전 컷 동일 스타일).
 # ASS 색은 &HAABBGGRR: 잉크(20,20,19)→&H00131414, 상자(253,254,254)→&H00FEFEFD,
 # 테두리(22,14,1)→&H00010E16, 그림자(59,38,3)→&H0003263B.
-# ── 오디오 트루피크 리미터 (2026-08-17) ──
-# 녹음 원본이 -0.1 dBTP까지 차 있어(입력 게인 과대) AAC 재인코딩·재생 DAC 오버슈트로 큰 소리에서
-# 찌그러진다(scripts/check_audio.py 실측). 렌더 시 -1 dBTP 리미터로 오버슈트만 막는다 — 라우드니스·
-# 타이밍 불변(룩어헤드 5ms는 ffmpeg가 보정), 이미 잘린 파형은 복원 못 함(근본 해결=재녹음).
-AUDIO_LIMITER = "alimiter=limit=0.891:attack=5:release=50:level=false"   # 0.891 = -1.0 dBFS
+# ── 오디오 라우드니스 정규화 (2026-08-20, 구 -1 dBTP 리미터 대체) ──
+# 녹음 게인이 프로젝트마다 널뛴다 — 풀링013은 과대(-0.1 dBTP 오버슈트), 키_002는 과소(-21.4 LUFS,
+# 유튜브 기준 -14 LUFS 대비 7dB 작게 들림). 렌더 시 loudnorm으로 -14 LUFS / -1 dBTP에 맞춰
+# 두 방향 문제를 모두 흡수한다. 기본은 나레이션 파일을 선측정한 2-pass linear(고정 게인 —
+# 다이내믹스 펌핑 없음), 측정 실패 시 1-pass dynamic 폴백. loudnorm은 내부 192kHz 업샘플
+# 후 그대로 내보내므로 aresample=48000으로 되돌린다.
+LOUDNORM_TARGET = "I=-14:TP=-1.5:LRA=11"   # TP -1.5 = AAC 오버슈트(~+0.3dB 실측) 후에도 -1 dBTP 이내
+AUDIO_LOUDNORM_FALLBACK = f"loudnorm={LOUDNORM_TARGET},aresample=48000"
+
+
+def _loudnorm_chain(ff: str, audio) -> str:
+    """나레이션 파일을 선측정해 2-pass linear loudnorm 필터 문자열을 만든다(실패 시 dynamic 폴백).
+
+    쇼츠는 audio_cuts로 잘라 이어붙인 뒤 이 필터를 통과하지만, 파트 간 라우드니스 편차가
+    ~1 LU 수준(키_002 실측 -20.6~-22.4 LUFS)이라 전체 파일 측정값을 그대로 써도 오차가 작다."""
+    r = subprocess.run(
+        [ff, "-hide_banner", "-nostats", "-i", str(audio),
+         "-af", f"loudnorm={LOUDNORM_TARGET}:print_format=json", "-f", "null", "-"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    m = re.search(r"\{[^{}]*\"input_i\"[^{}]*\}", r.stderr or "")
+    if not m:
+        print("[오디오] loudnorm 선측정 실패 → 1-pass dynamic 폴백 (품질 차이 경미)")
+        return AUDIO_LOUDNORM_FALLBACK
+    v = json.loads(m.group(0))
+    print(f"[오디오] 나레이션 실측 {float(v['input_i']):.1f} LUFS / TP {float(v['input_tp']):+.1f} dBTP "
+          f"→ loudnorm 2-pass linear (목표 -14 LUFS / -1.5 dBTP)")
+    return (f"loudnorm={LOUDNORM_TARGET}"
+            f":measured_I={v['input_i']}:measured_TP={v['input_tp']}"
+            f":measured_LRA={v['input_lra']}:measured_thresh={v['input_thresh']}"
+            f":offset={v['target_offset']}:linear=true,aresample=48000")
 ASS_FONT = "Pretendard"
 ASS_STYLE_INK = "&H00131414"
 ASS_BOX_FILL = "&H00FEFEFD"
@@ -358,7 +383,7 @@ def _short_audio_cuts(audio_cuts: list, audio_dur_s: float) -> list:
     return cuts
 
 
-def _build_short_filter(cuts: list, audio_idx: int, playres: tuple, limiter: bool = True) -> str:
+def _build_short_filter(cuts: list, audio_idx: int, playres: tuple, audio_chain: str = None) -> str:
     """쇼츠 filter_complex: 비디오 정규화+자막 굽기 + audio_cuts atrim/concat.
 
     오디오는 나레이션(입력 audio_idx)에서 각 컷 [src, src+dur]을 atrim으로 뽑아 asetpts로 t=0 리셋하고
@@ -373,7 +398,7 @@ def _build_short_filter(cuts: list, audio_idx: int, playres: tuple, limiter: boo
             f"[{audio_idx}:a]atrim=start={src:.3f}:end={src + d:.3f},asetpts=PTS-STARTPTS[{lbl}]")
         labels.append(f"[{lbl}]")
     a_parts.append("".join(labels) + f"concat=n={len(cuts)}:v=0:a=1[acat]")
-    a_parts.append(f"[acat]{AUDIO_LIMITER}[aout]" if limiter else "[acat]anull[aout]")
+    a_parts.append(f"[acat]{audio_chain}[aout]" if audio_chain else "[acat]anull[aout]")
     return video_part + ";" + ";".join(a_parts)
 
 
@@ -424,17 +449,17 @@ def _pick_encoder(force_nvenc: bool, force_x264: bool) -> bool:
     return ok
 
 
-def _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nvenc, limiter=True):
+def _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nvenc, audio_chain=None):
     """ffmpeg argv 구성. 화질: libx264 crf17 preset medium (FinalVideo 렌더와 동급) / --nvenc는 cq19."""
     cmd = [ff, "-hide_banner", "-y", "-i", str(video)]
     for o in overlays:                               # ov 입력 순서 = filter의 [i:v] 순서와 반드시 일치
         cmd += ["-i", str(ov_files[o["n"]])]
     cmd += ["-i", str(audio)]
     a_idx = 1 + len(overlays)                                    # 오디오 = 마지막 입력
-    if limiter:
-        filtergraph = f"{filtergraph};[{a_idx}:a]{AUDIO_LIMITER}[aout]"
+    if audio_chain:
+        filtergraph = f"{filtergraph};[{a_idx}:a]{audio_chain}[aout]"
     cmd += ["-filter_complex", filtergraph]
-    cmd += ["-map", "[vout]", "-map", "[aout]" if limiter else f"{a_idx}:a"]
+    cmd += ["-map", "[vout]", "-map", "[aout]" if audio_chain else f"{a_idx}:a"]
     if nvenc:
         # h264_nvenc, cq 19 수준 (VBR, 비트레이트 상한 없음 → 품질 목표)
         cmd += ["-c:v", "h264_nvenc", "-preset", "p5", "-rc", "vbr", "-cq", "19", "-b:v", "0"]
@@ -485,10 +510,11 @@ def _render_ffmpeg(base, tl, audio, srt, video, overlays, ov_files, out_arg, nve
     print(f"       규격: {fontname} {fontsize}px · 하단 여백(MarginV) {margin_v}px · 좌우 {margin_lr}px")
 
     filtergraph = _build_filter(overlays, playres)
-    cmd = _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nvenc, limiter)
+    audio_chain = _loudnorm_chain(ff, audio) if limiter else None
+    cmd = _ffmpeg_cmd(ff, video, overlays, ov_files, audio, filtergraph, out_path, nvenc, audio_chain)
 
     engine_label = "h264_nvenc(cq19)" if nvenc else "libx264(crf17/medium)"
-    print(f"[ffmpeg] 엔진 {engine_label} · 입력 capture+ov{len(overlays)}+narration · 리미터 {'-1 dBTP ON' if limiter else 'OFF'} · cwd={JOB_DIR}")
+    print(f"[ffmpeg] 엔진 {engine_label} · 입력 capture+ov{len(overlays)}+narration · 라우드니스 {'-14 LUFS/-1 dBTP ON' if audio_chain else 'OFF'} · cwd={JOB_DIR}")
     print("[ffmpeg] 명령:")
     print("  " + " ".join(_shq(a) for a in cmd))
 
@@ -543,7 +569,8 @@ def _render_ffmpeg_short(base, tl, audio, srt, video, out_arg, nvenc, dry_run, l
     print(f"[자막] ASS 생성(쇼츠 9:16): {ass_path} (컷 {total_cap}개, 흰 상자 자막)")
     print(f"       규격: {fontname} {fontsize}px · PlayRes {playres[0]}x{playres[1]} · 하단 여백(MarginV) {margin_v}px · 좌우 {margin_lr}px")
 
-    filtergraph = _build_short_filter(cuts, audio_idx=1, playres=playres, limiter=limiter)   # 입력: 0=capture, 1=narration
+    audio_chain = _loudnorm_chain(ff, audio) if limiter else None
+    filtergraph = _build_short_filter(cuts, audio_idx=1, playres=playres, audio_chain=audio_chain)   # 입력: 0=capture, 1=narration
     cmd = [ff, "-hide_banner", "-y", "-i", str(video), "-i", str(audio)]
     cmd += ["-filter_complex", filtergraph]
     cmd += ["-map", "[vout]", "-map", "[aout]"]
@@ -596,7 +623,7 @@ def main() -> None:
     ap.add_argument("--dry-run", action="store_true",
                     help="ffmpeg 엔진: 검증·ASS 생성·명령 구성까지만 (인코딩 미실행)")
     ap.add_argument("--no-limiter", action="store_true",
-                    help="오디오 -1 dBTP 트루피크 리미터 끄기 (기본 ON — 녹음 과입력 오버슈트 방지)")
+                    help="오디오 라우드니스 정규화(-14 LUFS/-1 dBTP loudnorm) 끄기 (기본 ON — 녹음 게인 과대·과소 모두 흡수)")
     args = ap.parse_args()
 
     base = args.job.resolve()

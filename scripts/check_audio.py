@@ -9,9 +9,10 @@
     - True Peak > -1.0 dBTP  → 경고 (유튜브·스트리밍 권장 상한 -1 dBTP; AAC 인코딩 오버슈트로 재생 시 찌그러짐)
     - 0.985 이상 샘플 런 ≥6개가 10회 이상 → 경고 (클리핑/과입력 흔적)
     - 통합 라우드니스 < -24 LUFS 또는 > -12 LUFS → 경고 (너무 작거나 큼; 유튜브 정규화 -14 LUFS 기준)
-  경고가 있으면 재녹음(입력 게인 -6~-10dB, 피크 -6 dBFS 목표) 권고. 재녹음 불가 시 render_final.py의
-  트루피크 리미터(기본 ON, --no-limiter로 끔)가 -1 dBTP로 눌러 재생 오버슈트만 막는다 — 이미 잘린
-  파형은 복원하지 못한다.
+  경고가 있으면 재녹음(입력 게인 -6~-10dB, 피크 -6 dBFS 목표) 권고. render_final.py의 loudnorm
+  (기본 ON, --no-limiter로 끔)이 완성본을 -14 LUFS / -1.5 dBTP로 정규화해 게인 과대·과소를 모두
+  흡수하지만(2026-08-20, 키_002 저입력 -21 LUFS 사례로 리미터에서 교체), 이미 잘린 파형은 복원하지
+  못하고 과소 녹음은 노이즈 플로어도 같이 올라간다 — 녹음 단계 품질은 여전히 이 게이트로 잡는다.
 
 사용:
   python check_audio.py <오디오 파일 또는 02_음성 폴더> [--strict]
@@ -94,7 +95,7 @@ def main():
             print(f"     - {x}")
     if total:
         print(f"\n[권고] 경고 {total}건 — 근본 해결은 재녹음(입력 게인 -6~-10dB, 피크 -6 dBFS 목표). "
-              "불가 시 render_final.py 리미터(기본 ON)가 -1 dBTP로 눌러 재생 오버슈트만 막는다.")
+              "불가 시 render_final.py loudnorm(기본 ON)이 -14 LUFS/-1.5 dBTP로 정규화하지만 잘린 파형·노이즈는 못 고친다.")
     sys.exit(1 if (a.strict and total) else 0)
 
 
