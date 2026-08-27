@@ -1,4 +1,37 @@
 <!DOCTYPE html>
+<!--
+  ============================================================================
+  PULLING 영상 소스 보일러플레이트 (16:9) — 모션 시스템 v2 (2026-08-27)
+  설계 정본: docs/개선안_2026-08-27_브리프-스토리보드-모션v2.md §3-3
+  ============================================================================
+
+  [배포 규약] 이 템플릿은 로컬 GSAP 3.15.0을 상대경로로 참조한다.
+    결과물 폴더에 반드시 함께 복사한다:  벤더/gsap.min.js → 04_영상소스/gsap.min.js
+    (없으면 window.gsap 가드가 조용히 건너뛰므로, 샷 시퀀스가 정지 화면으로 구워진다)
+
+  [슬라이드 로컬 타임라인 계약]
+    1) 샷 시퀀스가 있는 슬라이드에만 표시:  <section class="slide" data-tl="s07">
+    2) 슬라이드 마크업 뒤 · 내비게이션 스크립트 앞의 <script>에서 등록:
+         __slideTimelines["s07"] = gsap.timeline({ paused: true })
+           .fromTo(".s07 .card1", {opacity:0, y:40}, {opacity:1, y:0, duration:0.5}, 2.0)
+           .fromTo(".s07 .card2", {opacity:0, y:40}, {opacity:1, y:0, duration:0.5}, 4.5);
+    3) 구동은 전적으로 seek 기반이다. 슬라이드 로컬 시간 local = t − entryTime 으로
+         tl.totalTime(min(local, dur) + 0.001, true);   // 이벤트 허용 — onUpdate 발화
+         tl.totalTime(min(local, dur),          false);  // 정확한 값으로 안착
+       ⚠️ tl.seek() 금지 — 이벤트를 억제해 onUpdate 기반 아이템이 0프레임에 얼어붙는다(실측).
+
+  [금지 목록 — 어기면 캡처가 비결정론이 되거나 정지 화면이 된다]
+    · tl.seek() / tl.progress(x) 로 구동하기            → totalTime 2호출만
+    · repeat: -1 (무한 반복)                            → 청크 경계에서 위상이 튄다
+    · Date.now() / performance.now() / Math.random()    → 프레임마다 값이 달라진다
+    · CSS transition·animation과 GSAP이 같은 요소의 같은 속성을 동시에 구동 (이중 구동)
+        → .el / .el--w-* / .nudge 가 붙은 요소는 GSAP 타임라인 대상으로 쓰지 않는다
+    · <script src="gsap.min.js"> 를 타임라인 정의 스크립트보다 뒤에 두기 (에러 없이 정지)
+
+  [v2 신설 preset]  .el--w-anchor/.el--w-norm/.el--w-light (weighted stagger)
+                    .nudge (넛지 커브)  ·  .slide--cut (컷 더 커브 전환, 옵트인)
+  [v2 수정]         .pulse 유한 반복(3회)  ·  캡처 모드 preroll(첫 슬라이드 등장 소진 방지)
+-->
 <html lang="ko" data-theme="light">
 <head>
   <meta charset="UTF-8">
@@ -97,8 +130,84 @@
     @keyframes elRise { 0% { transform: translateY(28px) scale(0.96); opacity: 0; } 100% { transform: translateY(0) scale(1); opacity: 1; } }
     .slide.active .grow-scale { animation: growScale 0.85s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; animation-delay: calc(var(--i, 0) * 120ms + 0.5s); opacity: 0; transform-origin: center; }
     @keyframes growScale { 0% { transform: scale(0.3); opacity: 0; } 70% { transform: scale(1.08); opacity: 1; } 100% { transform: scale(1); opacity: 1; } }
-    .slide.active .pulse { animation: highlightPulse 2s ease-in-out 1.2s infinite; }
+    /* v2 수정: infinite → 3회(약 6초). 무한 루프는 60초 청크 경계에서 위상이 튀어(청크마다 브라우저를
+       새로 띄우므로) 이어붙인 지점에 링이 점프한다. 시선 유도는 3회면 충분하다. */
+    .slide.active .pulse { animation: highlightPulse 2s ease-in-out 1.2s 3; }
     @keyframes highlightPulse { 0%, 100% { box-shadow: 0 0 0 0 rgba(245,158,11,0); } 50% { box-shadow: 0 0 0 14px rgba(245,158,11,0.28); } }
+
+    /* ---------- v2 preset ①: 무게 스태거 (weighted stagger) ----------
+       조각의 시각적 무게에 따라 이동 거리·시간을 다르게 준다. 무거운 것은 멀리서 느리게,
+       가벼운 것은 가까이서 빠르게 — 한 화면이 "동시에 밀려드는 판"이 아니라 층으로 도착한다.
+       거리는 1080 기준 px를 vh 비율로 환산: 70px→6.5vh / 45px→4.2vh / 36px→3.3vh.
+       간격은 캐스케이드 후반으로 갈수록 줄어든다(80ms 등간격 금지):
+         delay(i) = 80ms·i − 4ms·i²   → 0 / 76 / 144 / 204 / 256 / 300 / 336 / 364 / 384 ms
+       ⚠️ --i 는 0~8 범위에서만 쓴다(9 이상은 간격이 역전된다 — 그룹을 나눌 것). max()로 하한 0ms 보장. */
+    .el--w-anchor, .el--w-norm, .el--w-light {
+      opacity: 0;
+      transition-property: opacity, transform;
+      transition-timing-function: cubic-bezier(0.16, 1, 0.3, 1); /* power3.out 롱테일 */
+      transition-delay: max(0ms, calc(var(--i, 0) * 80ms - var(--i, 0) * var(--i, 0) * 4ms));
+    }
+    .el--w-anchor { transform: translateY(6.5vh); transition-duration: 0.18s; }
+    .el--w-norm   { transform: translateY(4.2vh); transition-duration: 0.145s; }
+    .el--w-light  { transform: translateY(3.3vh); transition-duration: 0.115s; }
+    .slide.active .el--w-anchor,
+    .slide.active .el--w-norm,
+    .slide.active .el--w-light { opacity: 1; transform: translateY(0); }
+    .slide:not(.active) .el--w-anchor,
+    .slide:not(.active) .el--w-norm,
+    .slide:not(.active) .el--w-light { transition-delay: 0ms; }
+
+    /* ---------- v2 preset ②: 넛지 커브 (nudge curve) ----------
+       그룹 재배치 3단 체인. 거리 10 / 65 / 25%, 시간 20 / 18 / 62%.
+       램프인(power3.in) → 선형 버스트 → power4.out 긴 꼬리.
+       🔑 새 콘텐츠는 버스트 구간(20~38%)에 드러낸다 — 눈이 이동을 쫓는 동안 자리가 바뀌어야
+          "옆으로 밀렸다"가 아니라 "카메라가 옮겨갔다"로 읽힌다.
+       사용: <div class="nudge" style="--nx:-18vw; --nd:1.1s"> … </div>
+       ⚠️ 같은 요소에 .el / .el--w-* 를 같이 쓰지 않는다(transform 이중 구동). 래퍼를 하나 더 둔다.
+       CSS keyframes 는 캡처의 가상시간을 그대로 따르므로 결정론이다(rAF·시계 의존 없음). */
+    .nudge { transform: translateX(0); }
+    .slide.active .nudge {
+      animation: nudgeX var(--nd, 1.1s) both;
+      animation-delay: var(--ndelay, 0s);
+    }
+    @keyframes nudgeX {
+      0%   { transform: translateX(0);                              animation-timing-function: cubic-bezier(0.55, 0, 1, 0.45); }
+      20%  { transform: translateX(calc(var(--nx, 0px) * 0.10));    animation-timing-function: linear; }
+      38%  { transform: translateX(calc(var(--nx, 0px) * 0.75));    animation-timing-function: cubic-bezier(0.22, 1, 0.36, 1); }
+      100% { transform: translateX(var(--nx, 0px)); }
+    }
+
+    /* ---------- v2 preset ③: 컷 더 커브 슬라이드 전환 (옵트인 .slide--cut) ----------
+       기본 전환은 크로스 디졸브 그대로다. 이 클래스가 붙은 슬라이드로 넘어갈 때만
+       "양쪽 다 움직이는 도중에 떨어지는 컷"이 된다 — 부분 이동 12vw, 미러 이징.
+         나가는 쪽: 0 → -12vw, power4.in 0.3s. 불투명도는 이동 25~30% 지점에서 0.
+                    power4.in 에서 거리 27%는 시간 72% 지점이므로 opacity 0 키프레임을 72%에 둔다.
+         들어오는 쪽: +12vw → 0, power4.out 0.36s. 불투명도는 0.35에서 점화(0이 아니다).
+       :has() 로 "들어오는 슬라이드가 .slide--cut 일 때"만 나가는 슬라이드에 적용한다(Chromium). */
+    #slide-container:has(> .slide--cut.active) > .slide.prev {
+      animation: cutOut 0.3s cubic-bezier(0.5, 0, 0.75, 0) both;
+    }
+    @keyframes cutOut {
+      0%   { opacity: 1; transform: translateX(0) translateZ(0); }
+      72%  { opacity: 0; }
+      100% { opacity: 0; transform: translateX(-12vw) translateZ(0); }
+    }
+    .slide--cut.active { animation: cutIn 0.36s cubic-bezier(0.25, 1, 0.5, 1) both; }
+    @keyframes cutIn {
+      0%   { opacity: 0.35; transform: translateX(12vw) translateZ(0); }
+      100% { opacity: 1;    transform: translateX(0) translateZ(0); }
+    }
+
+    /* ---------- v2 수정: 캡처 preroll ----------
+       캡처 모드는 페이지 로드 직후 go(0)이 돌고, 그 뒤 폰트 로드·워밍업 beginFrame 동안
+       실시간이 수백 ms 흐른다 → 첫 슬라이드의 등장 모션이 프레임 0 이전에 소진된다.
+       preroll 동안 트랜지션·애니메이션을 전면 억제했다가, 첫 seek()에서 클래스를 제거하고
+       슬라이드 0을 재활성화(리플로우 후 재토글)해 프레임 0부터 등장이 시작되게 한다. */
+    body.preroll #slide-container, body.preroll #slide-container * {
+      transition: none !important;
+      animation: none !important;
+    }
 
     /* ---------- 모션 렉시콘 preset (design.md §4 렉시콘과 1:1 — 2026-07-31 신설) ----------
        스윕·드로우온·리빌류 강조 preset은 한 슬라이드에 1종만 (기본 등장 스태거/라이즈/팝과 조합은 자유) */
@@ -272,6 +381,12 @@
 
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
   </style>
+
+  <!-- GSAP 3.15.0 (로컬 벤더 — 벤더/gsap.min.js 를 이 HTML 옆에 복사해 둘 것).
+       반드시 슬라이드 로컬 타임라인 정의 스크립트보다 먼저 로드되어야 한다.
+       상단 배너 주석(GreenSock 라이선스 고지) 제거 금지. -->
+  <script src="gsap.min.js"></script>
+  <script>window.__slideTimelines = window.__slideTimelines || {};</script>
 </head>
 <body>
   <div class="progress-bar" id="progress-bar"></div>
@@ -336,6 +451,21 @@
 
   </div>
 
+  <!-- ============ 슬라이드 로컬 GSAP 타임라인 정의 (v2) ============
+       위치 고정: 슬라이드 마크업 뒤 · 내비게이션 스크립트 앞. (뒤로 가면 go(0)이 타임라인을 못 찾는다)
+       규칙: paused 타임라인 + fromTo 만. repeat:-1 / Date.now / Math.random 금지.
+             CSS transition·animation 이 이미 구동하는 속성(.el 계열의 opacity·transform)은 건드리지 않는다.
+       예시(주석 해제해서 사용):
+    __slideTimelines["s07"] = gsap.timeline({ paused: true })
+      .fromTo(".s07 .card-1", { opacity: 0, y: 48 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 2.0)
+      .fromTo(".s07 .card-2", { opacity: 0, y: 48 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 4.5);
+  -->
+  <script>
+    if (window.gsap) {
+      /* 여기에 슬라이드별 타임라인을 등록한다 */
+    }
+  </script>
+
   <!-- Lottie 플레이어(선택) — lottie/ 폴더가 없으면 조용히 건너뛴다(아래 window.lottie 가드) -->
   <script src="lottie/lottie.min.js"></script>
   <script>
@@ -345,6 +475,25 @@
     const counterEl = document.getElementById('counter');
     const progressBar = document.getElementById('progress-bar');
     let idx = 0;
+
+    // ============ v2: 슬라이드 로컬 GSAP 타임라인 구동 ============
+    const CAPTURE = new URLSearchParams(location.search).get('capture') === '1';
+    const TIMELINES = (window.__slideTimelines = window.__slideTimelines || {});
+    let entryTime = 0; // 현재 슬라이드가 화면에 들어온 전역 시각(초)
+
+    function tlFor(slide) {
+      const key = slide && slide.dataset ? slide.dataset.tl : null;
+      return key ? TIMELINES[key] : null;
+    }
+    // 슬라이드 로컬 시간 local 로 타임라인을 정확히 그 지점에 세운다.
+    // ⚠️ tl.seek() 금지 — 이벤트 억제로 onUpdate 아이템이 얼어붙는다. totalTime 2호출이 계약.
+    function driveTimeline(slide, local) {
+      const tl = tlFor(slide);
+      if (!tl) return;
+      const v = Math.min(Math.max(local, 0), tl.duration());
+      tl.totalTime(v + 0.001, true);
+      tl.totalTime(v, false);
+    }
 
     slides.forEach((_, i) => {
       const b = document.createElement('button');
@@ -428,7 +577,19 @@
       const s = slides[n];
       activateStages(s);
       playSlideLotties(s);
-      s.querySelectorAll('[data-counter]').forEach(el => setTimeout(() => animateCounter(el), 350));
+      // v2.1: 캡처에서는 rAF 카운터가 비결정(실측: 2회 캡처 픽셀 드리프트) — seek의 syncCounters가 구동
+      if (!CAPTURE) s.querySelectorAll('[data-counter]').forEach(el => setTimeout(() => animateCounter(el), 350));
+      // v2: 슬라이드 로컬 타임라인. 캡처·오토플레이에서는 seek로 구동하므로 0에 세워두기만 한다.
+      // 수동 넘김(방향키)은 캡처 대상이 아니므로 그냥 재생한다.
+      const tl = tlFor(s);
+      if (tl) {
+        tl.pause(0);
+        if (!CAPTURE && !auto.armed && !auto.running) tl.play(0);
+      }
+      Object.keys(TIMELINES).forEach(k => { // 다른 슬라이드 타임라인은 0으로 되감아 둔다
+        const o = TIMELINES[k];
+        if (o && o !== tl) o.pause(0);
+      });
     }
 
     // ============ 동기화 오토플레이 (싱크 계약의 핵심) ============
@@ -456,7 +617,7 @@
       cover.style.display = 'none';
     }
     function applyEntry(e) {
-      if (idx !== e.s) go(e.s);
+      if (idx !== e.s) { entryTime = e.t || 0; go(e.s); }  // v2: 슬라이드 로컬 시간의 원점
       if (e.g != null) setStage(slides[e.s], e.g);
     }
     function startAutoplay() {
@@ -475,7 +636,10 @@
         while (applied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[applied + 1].t <= t) {
           applied++; applyEntry(SLIDE_TIMELINE[applied]);
         }
-        if (applied < SLIDE_TIMELINE.length - 1) auto.raf = requestAnimationFrame(tick);
+        driveTimeline(slides[idx], t - entryTime); // v2: 로컬 타임라인도 같은 시계로 구동
+        const cur = tlFor(slides[idx]);
+        const tlBusy = !!cur && (t - entryTime) < cur.duration();
+        if (applied < SLIDE_TIMELINE.length - 1 || tlBusy) auto.raf = requestAnimationFrame(tick);
         else { auto.running = false; auto.armed = false; }
       }
       auto.raf = requestAnimationFrame(tick);
@@ -503,8 +667,11 @@
 
     // ============ 캡처 모드 (?capture=1 — 헤드리스 자동 녹화용, scripts/capture_slides.py) ============
     // 크롬 UI 숨김 + 커버를 순수 검정으로 전환(녹화 후 blackdetect로 t=0 프레임 검출) + 외부 시작 트리거 노출
-    if (new URLSearchParams(location.search).get('capture') === '1') {
+    if (CAPTURE) {
       document.body.classList.add('fullscreen-mode');
+      // v2: preroll — 첫 seek 전까지 등장 모션을 전면 억제한다.
+      // (로드~폰트 로드~워밍업 beginFrame 사이의 실시간 수백 ms가 슬라이드 0의 등장을 소진하는 문제)
+      document.body.classList.add('preroll');
       cover.style.background = '#000';
       Array.from(cover.children).forEach(el => el.style.display = 'none');
       armAutoplay();
@@ -512,14 +679,62 @@
       // seek(t): 외부(capture_slides.py)가 프레임마다 호출 — 시계 없이 덱 상태를 직접 구동.
       // 가상시간 + BeginFrame 제어 환경에서 rAF 시계가 어긋나도 타임라인이 정확히 적용된다.
       let seekApplied = -1;
+      let seekStarted = false;
+      // v2.1: CSS transition/animation 가상시간 강제 동기화 (2026-08-27 실측 픽스).
+      // BeginFrame 제어에서 CSS 애니메이션 시계는 가상시간을 따르지 않아 0.36~0.95s 트랜지션이
+      // 1~3프레임으로 접힌다(실측: 템플릿 샘플 덱 16s 전환+1s hbar-fill 전체가 3프레임).
+      // GSAP는 driveTimeline이 좌표를 직접 찍지만 CSS는 브라우저 시계 소유 — 그래서 매 seek마다
+      // WAAPI(document.getAnimations)로 전부 pause하고 currentTime을 좌표로 직접 찍는다.
+      // 계약: 이 시스템의 모든 CSS 모션은 슬라이드 activation(go)에서 발화한다(transition-delay 포함).
+      // 애니메이션 객체가 '태어난 시점'의 entryTime을 birth로 태깅해 currentTime = (t − birth)로 둔다
+      // (컷/크로스페이드로 이전 슬라이드의 퇴장 트랜지션도 같은 go에서 태어나므로 같은 기준이 맞다).
+      const __animBirth = new WeakMap();
+      // v2.1: [data-counter] 결정론 구동 — animateCounter(rAF)와 같은 수치 계약(+0.35s 시작, cubic out)
+      function syncCounters(slide, local) {
+        slide.querySelectorAll('[data-counter]').forEach(el => {
+          const target = parseFloat(el.dataset.target || '0');
+          const from = parseFloat(el.dataset.from || '0');
+          const dur = parseInt(el.dataset.duration || '1100', 10) / 1000;
+          const p = Math.min(Math.max((local - 0.35) / dur, 0), 1);
+          const eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = (el.dataset.prefix || '') +
+            Math.round(from + eased * (target - from)).toLocaleString() + (el.dataset.suffix || '');
+        });
+      }
+      function syncCssAnimations(t) {
+        // getAnimations()는 스타일을 플러시하므로 go()가 방금 만든 트랜지션도 이 호출에서 잡힌다
+        document.getAnimations().forEach(a => {
+          try {
+            if (!__animBirth.has(a)) { __animBirth.set(a, entryTime); a.pause(); }
+            a.currentTime = Math.max(0, t - __animBirth.get(a)) * 1000;
+          } catch (e) { /* cancel된 트랜지션 등 — 무시 */ }
+        });
+      }
       window.__capture = {
         ready: false,
         start: startAutoplay,
         seek(t) {
           cover.style.display = 'none';
+          if (!seekStarted) {
+            // v2: 프레임 0 = 등장의 시작. preroll 해제 → 리플로우 → 슬라이드 0 재활성화.
+            // ⚠️ 순서가 계약이다(실측 2026-08-27): preroll 해제와 active 제거를 같은 스타일 재계산에
+            //    넣으면, 트랜지션이 켜지는 순간 opacity 1→0 트랜지션이 시작되고 곧바로 active를 다시
+            //    붙이면서 되돌아가 버린다(= 프레임 0에 이미 다 나와 있음). 반드시 3단계로 나눈다.
+            seekStarted = true;
+            slides.forEach(s => s.classList.remove('active', 'prev')); // ① preroll(transition:none) 상태에서 초기값으로
+            void document.body.offsetWidth;                            //    재계산 — 즉시 opacity 0
+            document.body.classList.remove('preroll');                 // ② 트랜지션 해금 (값 변화 없음 → 발화 없음)
+            void document.body.offsetWidth;
+            entryTime = SLIDE_TIMELINE.length ? (SLIDE_TIMELINE[0].t || 0) : 0;
+                                                                       // ③ 여기서부터 등장이 시작된다
+            idx = -1; go(SLIDE_TIMELINE.length ? SLIDE_TIMELINE[0].s : 0);
+          }
           while (seekApplied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[seekApplied + 1].t <= t) {
             seekApplied++; applyEntry(SLIDE_TIMELINE[seekApplied]);
           }
+          driveTimeline(slides[idx], t - entryTime); // v2: 슬라이드 로컬 GSAP 타임라인
+          syncCssAnimations(t);                      // v2.1: CSS 애니메이션도 같은 시계로 좌표 찍기
+          syncCounters(slides[idx], t - entryTime);  // v2.1: data-counter도 시간 좌표로
         },
       };
       document.fonts.ready.then(() => setTimeout(() => { window.__capture.ready = true; }, 500));

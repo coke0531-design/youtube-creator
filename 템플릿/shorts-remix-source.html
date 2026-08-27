@@ -237,12 +237,27 @@
        seek(t): 외부가 프레임마다 호출 — 시계 없이 덱 상태를 직접 구동한다.
        가상시간 + BeginFrame 제어 환경에서 rAF 시계가 멈춰도 타임라인이 정확히 적용된다. */
     let seekApplied = -1;
+    let entryTime = 0; // 현재 슬라이드가 화면에 들어온 전역 시각(초)
+    // v2.1: CSS transition/animation 가상시간 강제 동기화 — 16:9/9:16 템플릿과 동일 픽스(2026-08-27).
+    // BeginFrame 제어에서 CSS 애니메이션 시계는 벽시계로 돌아 접히거나 타이밍이 어긋난다(실측).
+    const __animBirth = new WeakMap();
+    function syncCssAnimations(t) {
+      document.getAnimations().forEach(a => {
+        try {
+          if (!__animBirth.has(a)) { __animBirth.set(a, entryTime); a.pause(); }
+          a.currentTime = Math.max(0, t - __animBirth.get(a)) * 1000;
+        } catch (e) { /* cancel된 트랜지션 등 — 무시 */ }
+      });
+    }
     window.__capture = {
       ready: false,
       seek(t) {
         while (seekApplied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[seekApplied + 1].t <= t) {
-          seekApplied++; go(SLIDE_TIMELINE[seekApplied].s);
+          seekApplied++;
+          entryTime = SLIDE_TIMELINE[seekApplied].t || 0;
+          go(SLIDE_TIMELINE[seekApplied].s);
         }
+        syncCssAnimations(t);
       },
     };
     document.fonts.ready.then(() => { window.__capture.ready = true; });

@@ -11,7 +11,8 @@
   B. SLIDE_TIMELINE(HTML) : 비스테이지 엔트리 수 = slides 수, t = slides[i].start(±2ms), s = index.
      스테이지 엔트리(g 포함)는 해당 슬라이드 구간 안에 있어야 함. HTML 없으면 건너뜀(초안 모드).
   C. SRT       : 컷 ≥ 1, start < end, 단조·비겹침(±1ms), 마지막 end ≤ duration + 1s
-  D. video_overlays : n 양의 정수·유일, 0 ≤ start < end ≤ duration, 서로 비겹침, 원본(src) 실존
+  D. video_overlays : n 양의 정수·유일, 0 ≤ start < end ≤ duration, 서로 비겹침, 원본(src) 실존,
+     style은 화이트리스트(collage/hyperframes/없음) — 오타는 실사 경로로 오인돼 재인코딩 사고
   E. 미디어    : audio ≈ duration(±0.5s), capture.mp4(있으면) ≈ duration(±0.5s),
      ov<n>.mp4(있으면) ≥ 구간−0.5s. 파일이 아직 없으면 INFO로 표시만(단계 진행 중일 수 있음).
   F. 콜라주 오프닝 (본편만) : style=="collage"·start==0.0 오버레이가 반드시 1개 존재(첫 장면 후킹 —
@@ -41,6 +42,9 @@ SRT_OVERLAP_TOL = 0.001    # 자막 컷 겹침 허용(초)
 MEDIA_TOL = 0.5            # 미디어 길이 허용 오차(초)
 OPENING_TOL = 0.001        # 콜라주 오프닝 start == 0 판정 허용 오차(초)
 COLLAGE_MAX = 3            # 편당 콜라주 인서트 상한
+# 자체 렌더 인서트 style 화이트리스트 — collage=render_collage.py, hyperframes=render_hf.py.
+# style 없음 = 사용자 제공 실사/시연 소스(encode_overlays.py가 배속 인코딩).
+OVERLAY_STYLES = {"collage", "hyperframes"}
 DUR_HEAD_RE = re.compile(r"Duration:\s*(\d+):(\d+):(\d+\.\d+)")
 SRT_TIME_RE = re.compile(r"(\d+):(\d+):(\d+),(\d+)\s*-->\s*(\d+):(\d+):(\d+),(\d+)")
 ST_ENTRY_RE = re.compile(r"\{\s*t:\s*([0-9.]+)\s*,\s*s:\s*(\d+)\s*(?:,\s*g:\s*(\d+))?\s*\}")
@@ -140,6 +144,11 @@ def run(timeline_path, media: bool = True, skip_capture: bool = False) -> list:
         if not isinstance(n, int) or n <= 0 or n in seen_n:
             errors.append(f"D: 오버레이 n 비정상/중복: {n}")
         seen_n.add(n)
+        if o.get("style") is not None and o["style"] not in OVERLAY_STYLES:
+            # 오타(예: "hyperframe")는 encode_overlays.py가 일반 실사 오버레이로 오인해
+            # ov<n>.mp4를 자기 자신으로 재인코딩한다 → 화이트리스트로 fail-loud.
+            errors.append(f"D: 오버레이 {n} style \"{o['style']}\" 미지원 "
+                          f"— 허용: {sorted(OVERLAY_STYLES)} 또는 style 없음(실사 소스)")
         if not (0 <= o["start"] < o["end"] <= duration + 0.01):
             errors.append(f"D: 오버레이 {n} 구간 비정상 {o['start']}–{o['end']} (duration {duration})")
         if not (base / o["src"]).is_file():

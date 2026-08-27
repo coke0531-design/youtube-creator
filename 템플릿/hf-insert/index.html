@@ -1,0 +1,309 @@
+<!doctype html>
+<!--
+  HF 히어로 인서트 스캐폴드 (youtube-creator, 개선안 §3-5)
+  이 파일을 `결과물/<작업>/04_영상소스/hf/<n>/index.html`로 복사해 쓴다.
+  렌더: python scripts/render_hf.py <타임라인.json> [--n 3]
+
+  ─────────────────────────────────────────────────────────────────────────────
+  HF 컴포지션 계약 체크리스트 (개선안 §2 함정 + DIGEST Q2-A. 어기면 조용히 정지 화면)
+  ─────────────────────────────────────────────────────────────────────────────
+  [루트]
+  · 최상위 루트는 <body> 바로 밑의 <div data-composition-id=… data-start="0"
+    data-duration=<초> data-width data-height data-fps="30">. <template>으로 감싸면
+    standalone_composition_wrapped_in_template (error).
+  · 루트는 position:relative + 명시 px 크기 + overflow:hidden.
+  · 치수·길이·fps는 정적 HTML 속성이어야 한다(StaticGuard가 JS 실행 전 태그 원문을 읽음).
+    data-duration은 컴파일 타임 1회만 읽히며 스크립트·--variables로 못 바꾼다.
+    렌더 길이 = 이 값(타임라인이 짧으면 마지막 프레임 홀드, 길면 잘림).
+  · 타이밍 속성은 data-start / data-duration / data-track-index 3개뿐.
+    data-end는 컴파일러 파생값이라 저작 금지(deprecated_data_end).
+
+  [클립·가시성]
+  · 요소를 클립으로 만드는 것은 data-start 뿐. 비루트 타임드 요소에는 class="clip"도
+    붙인다(없으면 timed_element_missing_clip_class warning + GSAP 클립 소유권 규칙 보호 상실).
+  · 가시 창은 반개구간 [start, start+duration) → **최종 상태는 data-duration보다 살짝
+    앞에 착지**시켜야 마지막 프레임이 렌더된다(아래 T_END 상수).
+  · data-start 없는 배경 요소는 런타임이 건드리지 않으므로 스스로
+    position:absolute; inset:0 을 줘야 높이 0으로 붕괴하지 않는다.
+
+  [타임라인·GSAP]
+  · GSAP <script>는 컴포넌트 스크립트보다 **먼저**. 순서가 틀리면 에러 없이 정지 화면.
+  · 컴포지션당 gsap.timeline({paused:true}) 정확히 1개를
+    window.__timelines["insert"](= 루트 data-composition-id)로 등록. tl.play() 금지.
+  · 진입은 from()이 아니라 **fromTo()**. 초기 상태는 타임라인 밖 gsap.set(...)으로
+    잡는다(위치 0의 tl.set은 프레임 0에 렌더되지 않음).
+  · 금지(lint error): CSS transition / @keyframes / requestAnimationFrame /
+    Math.random·Date.now·performance.now / repeat:-1(무한) /
+    left·top·margin·fontSize·letterSpacing 트윈(transform·autoAlpha를 쓸 것) /
+    CSS 초기 transform과 같은 속성의 to() 트윈.
+    width·height·filter·clipPath·strokeDashoffset 트윈은 합법.
+
+  [폰트]
+  · font-family 스택에 적힌 **모든 이름**에 @font-face가 필요하다
+    (font_family_without_font_face error). 한글은 Google Fonts 서브셋이 꺼지므로
+    반드시 로컬 @font-face url(). 시스템 폴백 이름에는 src: local() 스텁을 준다.
+    generic(sans-serif·system-ui·-apple-system·monospace…)은 면제.
+
+  [팔레트 — check의 명암비 임계는 변경 불가: 큰 텍스트 3:1, 작은 텍스트 4.5:1]
+  · 흰 배경 위 #F59E0B 텍스트는 2.15:1로 **실패**한다. 앰버는 그래픽 전용.
+  · 텍스트 앰버는 --accent-text(#D97706, 큰 텍스트) / --accent-ink(#b06f07, 작은 텍스트).
+
+  [자막 안전영역] 하단 21% = y > 853px 에는 텍스트 금지(본편 한글 자막이 올라온다).
+
+  [검증 순서] lint(error 0) → check → (서브컴포지션이면 snapshot --at) → render.
+    lint error가 1건이라도 있으면 check는 브라우저 감사를 통째로 건너뛴다
+    ("0 sample(s)"는 깨끗하다는 뜻이 아니라 안 돌았다는 뜻).
+-->
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <title>HF Insert Scaffold</title>
+    <style>
+      /* ── 폰트: 로컬 @font-face(한글 서브셋 함정 회피) ───────────────────── */
+      @font-face {
+        font-family: "Pretendard";
+        src: url("assets/fonts/Pretendard-Regular.otf") format("opentype");
+        font-weight: 400;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Pretendard";
+        src: url("assets/fonts/Pretendard-SemiBold.otf") format("opentype");
+        font-weight: 600;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Pretendard";
+        src: url("assets/fonts/Pretendard-Bold.otf") format("opentype");
+        font-weight: 700;
+        font-style: normal;
+        font-display: block;
+      }
+      @font-face {
+        font-family: "Pretendard";
+        src: url("assets/fonts/Pretendard-Black.otf") format("opentype");
+        font-weight: 900;
+        font-style: normal;
+        font-display: block;
+      }
+      /* 폴백 스택의 시스템 폰트 이름 — @font-face 없으면 lint error라 local() 스텁을 둔다 */
+      @font-face {
+        font-family: "Noto Sans KR";
+        src: local("Noto Sans KR");
+      }
+      @font-face {
+        font-family: "JetBrains Mono";
+        src: local("JetBrains Mono");
+      }
+      @font-face {
+        font-family: "Fira Code";
+        src: local("Fira Code");
+      }
+      @font-face {
+        font-family: "Consolas";
+        src: local("Consolas");
+      }
+
+      /* ── 4색 토큰 (design.md SSOT와 동일) ──────────────────────────────── */
+      :root {
+        --bg-page: #ffffff;
+        --bg-surface: #f7f6f4;
+        --bg-border: #e6e4df;
+
+        --text-primary: #141413; /* 먹 */
+        --text-secondary: #5e5d59;
+
+        --accent: #F59E0B;       /* 앰버 — 그래픽·큰 숫자 전용(텍스트 명암비 실패) */
+        --accent-text: #D97706;  /* 큰 텍스트용 앰버 */
+        --accent-ink: #b06f07;   /* 작은 텍스트용 진앰버 (4.5:1 통과) */
+        --green: #16a34a;        /* 보조 강조 */
+
+        --font-sans: "Pretendard", "Noto Sans KR", system-ui, -apple-system, sans-serif;
+        --font-mono: "JetBrains Mono", "Fira Code", "Consolas", ui-monospace, monospace;
+
+        /* HF 컴포넌트가 읽는 호스트 토큰(파츠 폴백과 짝) */
+        --fg: #141413;
+        --bg: #ffffff;
+        --surface: #f7f6f4;
+        --border: #e6e4df;
+        --muted: #5e5d59;
+        --brand: #F59E0B;
+        --accent-2: #16a34a;
+        --font-display: "Pretendard", "Noto Sans KR", system-ui, sans-serif;
+      }
+
+      *,
+      *::before,
+      *::after {
+        box-sizing: border-box;
+      }
+
+      /* 번들러가 주입하는 한 줄과 동일 — headless-shell/풀 Chrome 렌더 차이 제거 */
+      html,
+      body,
+      * {
+        text-rendering: geometricPrecision;
+      }
+
+      html,
+      body {
+        width: 1920px;
+        height: 1080px;
+        margin: 0;
+        overflow: hidden;
+        background: var(--bg-page);
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        word-break: keep-all;
+        overflow-wrap: break-word;
+      }
+
+      #insert-root {
+        position: relative;
+        width: 1920px;
+        height: 1080px;
+        overflow: hidden;
+        background: var(--bg-page);
+        isolation: isolate;
+      }
+
+      /* data-start 없는 배경은 런타임이 사이징하지 않으므로 스스로 절대배치 */
+      .ins-bg {
+        position: absolute;
+        inset: 0;
+        background: var(--bg-page);
+        z-index: 0;
+      }
+
+      .ins-stage {
+        position: absolute;
+        inset: 0;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        /* 자막 안전영역: 하단 21%(227px)를 비워 텍스트가 y>853px로 내려가지 않게 */
+        padding: 96px 160px 227px;
+        z-index: 1;
+      }
+
+      .ins-kicker {
+        margin: 0 0 28px;
+        color: var(--accent-ink);
+        font-family: var(--font-sans);
+        font-size: 34px;
+        font-weight: 700;
+        letter-spacing: 0.22em;
+        line-height: 1;
+        will-change: transform, opacity;
+      }
+
+      .ins-title {
+        margin: 0;
+        color: var(--text-primary);
+        font-family: var(--font-sans);
+        font-size: 132px;
+        font-weight: 900;
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+        text-align: center;
+        will-change: transform, opacity;
+      }
+
+      .ins-rule-svg {
+        display: block;
+        width: 720px;
+        height: 6px;
+        margin: 44px 0 0;
+      }
+
+      .ins-rule-svg line {
+        stroke: var(--accent);
+        stroke-width: 6;
+        stroke-linecap: round;
+      }
+
+      .ins-sub {
+        margin: 40px 0 0;
+        color: var(--text-secondary);
+        font-family: var(--font-sans);
+        font-size: 40px;
+        font-weight: 500;
+        line-height: 1.5;
+        text-align: center;
+        will-change: transform, opacity;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 루트: <template> 금지, 정적 치수·길이·fps -->
+    <div
+      id="insert-root"
+      data-composition-id="insert"
+      data-start="0"
+      data-duration="8"
+      data-width="1920"
+      data-height="1080"
+      data-fps="30"
+    >
+      <div class="ins-bg"></div>
+
+      <div class="ins-stage">
+        <p class="ins-kicker">KICKER</p>
+        <h1 class="ins-title">제목을 여기에</h1>
+        <svg
+          class="ins-rule-svg"
+          viewBox="0 0 720 6"
+          preserveAspectRatio="none"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+        >
+          <line class="ins-rule" x1="3" y1="3" x2="717" y2="3" />
+        </svg>
+        <p class="ins-sub">부제를 여기에</p>
+      </div>
+    </div>
+
+    <!-- GSAP은 반드시 컴포넌트 스크립트보다 먼저 (로컬 벤더 3.15.0, 헤더 배너 보존) -->
+    <script src="assets/gsap.min.js"></script>
+    <script>
+      (function () {
+        "use strict";
+
+        var root = document.getElementById("insert-root");
+        var kicker = root.querySelector(".ins-kicker");
+        var title = root.querySelector(".ins-title");
+        var rule = root.querySelector(".ins-rule");
+        var sub = root.querySelector(".ins-sub");
+
+        var D = 8;          // 루트 data-duration과 동일하게 정적 기입
+        var T_END = D - 0.1; // 반개구간 [0, D) — 최종 상태는 D보다 살짝 앞에 착지
+
+        // 초기 상태는 타임라인 "밖" gsap.set (위치 0의 tl.set은 프레임 0에 안 그려짐)
+        gsap.set([kicker, title, sub], { autoAlpha: 0 });
+        var ruleLen = rule.getTotalLength();
+        gsap.set(rule, { strokeDasharray: ruleLen, strokeDashoffset: ruleLen });
+
+        var tl = gsap.timeline({ paused: true });
+
+        // 진입은 전부 fromTo (from은 seek-back에서 desync)
+        tl.fromTo(kicker, { autoAlpha: 0, y: 26 },
+                          { autoAlpha: 1, y: 0, duration: 0.5, ease: "power3.out" }, 0.0);
+        tl.fromTo(title,  { autoAlpha: 0, y: 64, scale: 0.965 },
+                          { autoAlpha: 1, y: 0, scale: 1, duration: 0.9, ease: "power3.out" }, 0.25);
+        tl.fromTo(rule,   { strokeDashoffset: ruleLen },
+                          { strokeDashoffset: 0, duration: 0.6, ease: "power2.out" }, 0.95);
+        tl.fromTo(sub,    { autoAlpha: 0, y: 30 },
+                          { autoAlpha: 1, y: 0, duration: 0.55, ease: "power3.out" }, 1.25);
+
+        // 홀드는 진짜 정지(숨쉬기 루프 금지). 마지막 프레임 보증용 no-op 착지.
+        tl.set(title, { autoAlpha: 1 }, T_END);
+
+        window.__timelines = window.__timelines || {};
+        window.__timelines["insert"] = tl;
+      })();
+    </script>
+  </body>
+</html>

@@ -1,0 +1,9 @@
+{
+  "name": "yc-hf-insert",
+  "private": true,
+  "version": "0.0.0",
+  "description": "youtube-creator HF 히어로 인서트 스캐폴드 — hyperframes 0.8.16 핀",
+  "devDependencies": {
+    "hyperframes": "0.8.16"
+  }
+}

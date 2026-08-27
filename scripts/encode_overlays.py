@@ -87,10 +87,11 @@ def main() -> None:
 
     changed = False
     for o in overlays:
-        if o.get("style") == "collage":
-            # 콜라주 인서트는 render_collage.py가 ov<n>.mp4를 정확한 길이로 직접 렌더한다 —
+        if o.get("style") in ("collage", "hyperframes"):
+            # 자체 렌더 인서트는 각자의 렌더러가 ov<n>.mp4를 정확한 길이로 직접 만든다 —
             # 여기서 재인코딩하면 자기 자신을 입력으로 덮어쓰므로 반드시 건너뛴다.
-            print(f"  ov{o['n']}: collage — 건너뜀 (scripts/render_collage.py 담당)")
+            renderer = {"collage": "render_collage.py", "hyperframes": "render_hf.py"}[o["style"]]
+            print(f"  ov{o['n']}: {o['style']} — 건너뜀 (scripts/{renderer} 담당)")
             continue
         src = (base / o["src"]).resolve()
         if not src.is_file():

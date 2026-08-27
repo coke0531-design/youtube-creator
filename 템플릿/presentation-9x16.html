@@ -234,6 +234,7 @@
       })(t0);
     }
 
+    const CAPTURE = new URLSearchParams(location.search).get('capture') === '1';
     function go(n) {
       if (n < 0 || n >= slides.length) return;
       slides.forEach((s, i) => { s.classList.toggle('active', i === n); s.classList.toggle('prev', i < n); });
@@ -241,7 +242,8 @@
       dotNav.querySelectorAll('button').forEach((b, i) => b.classList.toggle('is-active', i === n));
       counterEl.textContent = String(n + 1).padStart(2, '0') + ' / ' + String(slides.length).padStart(2, '0');
       progressBar.style.width = ((n + 1) / slides.length * 100) + '%';
-      slides[n].querySelectorAll('[data-counter]').forEach(el => setTimeout(() => animateCounter(el), 300));
+      // v2.1: 캡처에서는 rAF 카운터가 비결정 — seek의 syncCounters가 구동 (16:9 템플릿과 같은 픽스)
+      if (!CAPTURE) slides[n].querySelectorAll('[data-counter]').forEach(el => setTimeout(() => animateCounter(el), 300));
     }
     // ============ 동기화 오토플레이 (싱크 계약의 핵심) ============
     // SLIDE_TIMELINE: 타임라인.json·컷지시서와 동일 (t=0 = 쇼츠 타임라인 0초 — 컷 이후 기준)
@@ -311,14 +313,42 @@
       // seek(t): 외부(capture_slides.py)가 프레임마다 호출 — 시계 없이 덱 상태를 직접 구동.
       // 가상시간 + BeginFrame 제어 환경에서 rAF 시계가 어긋나도 타임라인이 정확히 적용된다.
       let seekApplied = -1;
+      let entryTime = 0; // 현재 슬라이드가 화면에 들어온 전역 시각(초)
+      // v2.1: CSS transition/animation·카운터 가상시간 강제 동기화 — 16:9 템플릿과 동일 픽스.
+      // BeginFrame 제어에서 CSS 애니메이션 시계는 가상시간을 따르지 않아 0.36~0.95s 트랜지션이
+      // 1~3프레임으로 접힌다(2026-08-27 실측). WAAPI로 pause + currentTime 좌표를 직접 찍는다.
+      const __animBirth = new WeakMap();
+      function syncCssAnimations(t) {
+        document.getAnimations().forEach(a => {
+          try {
+            if (!__animBirth.has(a)) { __animBirth.set(a, entryTime); a.pause(); }
+            a.currentTime = Math.max(0, t - __animBirth.get(a)) * 1000;
+          } catch (e) { /* cancel된 트랜지션 등 — 무시 */ }
+        });
+      }
+      function syncCounters(slide, local) {
+        slide.querySelectorAll('[data-counter]').forEach(el => {
+          const target = parseFloat(el.dataset.target || '0');
+          const from = parseFloat(el.dataset.from || '0');
+          const dur = parseInt(el.dataset.duration || '1000', 10) / 1000;
+          const p = Math.min(Math.max((local - 0.30) / dur, 0), 1); // rAF 경로의 300ms 오프셋과 동일 계약
+          const eased = 1 - Math.pow(1 - p, 3);
+          el.textContent = (el.dataset.prefix || '') +
+            Math.round(from + eased * (target - from)).toLocaleString() + (el.dataset.suffix || '');
+        });
+      }
       window.__capture = {
         ready: false,
         start: startAutoplay,
         seek(t) {
           cover.style.display = 'none';
           while (seekApplied + 1 < SLIDE_TIMELINE.length && SLIDE_TIMELINE[seekApplied + 1].t <= t) {
-            seekApplied++; if (idx !== SLIDE_TIMELINE[seekApplied].s) go(SLIDE_TIMELINE[seekApplied].s);
+            seekApplied++;
+            entryTime = SLIDE_TIMELINE[seekApplied].t || 0;
+            if (idx !== SLIDE_TIMELINE[seekApplied].s) go(SLIDE_TIMELINE[seekApplied].s);
           }
+          syncCssAnimations(t);
+          syncCounters(slides[idx], t - entryTime);
         },
       };
       document.fonts.ready.then(() => setTimeout(() => { window.__capture.ready = true; }, 500));
