@@ -138,6 +138,13 @@ def run(timeline_path, media: bool = True, skip_capture: bool = False) -> list:
     # D. video_overlays
     overlays = tl.get("video_overlays") or []
     seen_n = set()
+    bad_span = [o for o in overlays
+                if not isinstance(o.get("start"), (int, float)) or not isinstance(o.get("end"), (int, float))]
+    for o in bad_span:
+        errors.append(f"D: 오버레이 {o.get('n')} start/end 누락 또는 숫자 아님: "
+                      f"{o.get('start')!r}–{o.get('end')!r}")
+    bad_ids = {id(o) for o in bad_span}
+    overlays = [o for o in overlays if id(o) not in bad_ids]
     ordered = sorted(overlays, key=lambda o: o["start"])
     for o in overlays:
         n = o.get("n")
@@ -151,8 +158,15 @@ def run(timeline_path, media: bool = True, skip_capture: bool = False) -> list:
                           f"— 허용: {sorted(OVERLAY_STYLES)} 또는 style 없음(실사 소스)")
         if not (0 <= o["start"] < o["end"] <= duration + 0.01):
             errors.append(f"D: 오버레이 {n} 구간 비정상 {o['start']}–{o['end']} (duration {duration})")
-        if not (base / o["src"]).is_file():
-            errors.append(f"D: 오버레이 {n} 원본 없음: {o['src']}")
+        src = o.get("src")
+        if not src:
+            # collage/hyperframes의 src는 render_collage/render_hf가 렌더 성공 후 기입한다 → 렌더 전 검사는 INFO.
+            if o.get("style") in ("collage", "hyperframes"):
+                print(f"[INFO] D: 오버레이 {n} src 미기입 — render_{o['style']} 실행 전이면 정상")
+            else:
+                errors.append(f"D: 오버레이 {n} src 없음 (실사 소스는 src 필수)")
+        elif not (base / src).is_file():
+            errors.append(f"D: 오버레이 {n} 원본 없음: {src}")
     for a, b in zip(ordered, ordered[1:]):
         if b["start"] < a["end"] - 0.001:
             errors.append(f"D: 오버레이 {a['n']}↔{b['n']} 구간 겹침")

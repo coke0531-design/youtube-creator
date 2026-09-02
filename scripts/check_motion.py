@@ -89,11 +89,16 @@ def diff_series(ffmpeg: str, video: Path, width: int, src_size):
     cmd = [ffmpeg, "-hide_banner", "-loglevel", "error", "-i", str(video),
            "-vf", f"fps={SAMPLE_FPS},scale={width}:{height}",
            "-pix_fmt", "gray", "-f", "rawvideo", "-"]
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    if width < 2 or frame_bytes <= 0:
+        die(f"[입력 오류] 분석 폭이 비정상이다: --width {width}")
+    # stderr는 PIPE로 받아 실패 사유를 보존한다 — DEVNULL+반환코드 미검사는 "측정 실패"를
+    # "완벽히 움직였다"(정지 0%)와 같은 PASS로 만들었다 (2026-09-02 리뷰 C1).
+    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                             bufsize=frame_bytes * 4)
     ring = []          # 최근 6프레임
     d1, d5 = [], []
     k = 0
+    err = b""
     try:
         while True:
             buf = proc.stdout.read(frame_bytes)
@@ -113,7 +118,17 @@ def diff_series(ffmpeg: str, video: Path, width: int, src_size):
             proc.stdout.close()
         except Exception:
             pass
+        try:
+            err = proc.stderr.read() or b""
+            proc.stderr.close()
+        except Exception:
+            pass
         proc.wait()
+    if proc.returncode != 0:
+        die(f"[측정 실패] ffmpeg 프레임 추출 rc={proc.returncode}: "
+            f"{err.decode('utf-8', 'replace').strip()[-600:]}")
+    if k == 0:
+        die(f"[측정 실패] 프레임이 한 장도 나오지 않았다: {video}")
     return d1, d5
 
 
@@ -153,7 +168,10 @@ def evaluate(slides, d5, d1, args, freezes=None):
                 ratio = 0.0
             else:
                 ratio = sum(1 for v in vals if v < args.eps) / samples
-        if length > args.min_len and ratio > args.fail:
+        # 표본 0 = 측정 불가(부분 캡처·구간 이탈). OK가 아니라 NOMEAS로 승격해 fail-loud.
+        if length > args.min_len and samples == 0:
+            level = "NOMEAS"
+        elif length > args.min_len and ratio > args.fail:
             level = "FAIL"
         elif length > args.min_len and ratio >= args.warn:
             level = "WARN"
@@ -169,9 +187,13 @@ def evaluate(slides, d5, d1, args, freezes=None):
 
 
 def dead_beats(slides, d1, eps):
-    """슬라이드 경계 t에서 t-0.1 / t+0.1 차분이 둘 다 정지면 '죽은 박자'."""
+    """슬라이드 경계 t에서 t-0.1 / t+0.1 차분이 둘 다 정지면 '죽은 박자'.
+
+    eps는 0.5s 간격 d5 기준 임계라 0.1s 간격 d1에는 구조적으로 과대하다 → d1 전용 임계 eps/4.
+    """
     if not d1:
         return []
+    eps = eps / 4.0
     lut = {round(t, 2): v for t, v in d1}
 
     def val(t):
@@ -249,6 +271,7 @@ def main():
 
     fails = [r for r in rows if r["level"] == "FAIL"]
     warns = [r for r in rows if r["level"] == "WARN"]
+    nomeas = [r for r in rows if r["level"] == "NOMEAS"]
     judged = [r for r in rows if r["len"] > args.min_len]
     avg = round(sum(r["still_ratio"] for r in judged) / len(judged), 3) if judged else 0.0
 
@@ -257,7 +280,8 @@ def main():
             "video": str(video), "timeline": str(tl), "duration": round(dur, 2),
             "mode": "freezedetect" if freezes is not None else "frame-diff",
             "eps": args.eps, "slides": rows, "dead_beats": beats,
-            "summary": {"fail": len(fails), "warn": len(warns), "avg_still_ratio": avg},
+            "summary": {"fail": len(fails), "warn": len(warns), "nomeas": len(nomeas),
+                        "avg_still_ratio": avg},
         }, ensure_ascii=False, indent=1))
     else:
         print(f"영상: {video}  ({dur:.2f}s, {size[0]}x{size[1]})")
@@ -272,7 +296,11 @@ def main():
                   f"{r['still_ratio'] * 100:>9.1f}%  {r['level']:<5} {r['label'][:34]}")
         print("-" * 88)
         print(f"판정 대상(>{args.min_len:.0f}s) {len(judged)}개 · 평균 정지 비율 {avg * 100:.1f}% · "
-              f"FAIL {len(fails)} · WARN {len(warns)}")
+              f"FAIL {len(fails)} · WARN {len(warns)} · 측정불가 {len(nomeas)}")
+        if nomeas:
+            print(f"측정 불가(표본 0) {len(nomeas)}건 [FAIL] — 캡처가 타임라인보다 짧거나 구간이 영상 밖:")
+            for r in nomeas:
+                print(f"  - {r['id']} {r['start']:.2f}~{r['end']:.2f}s (영상 길이 {dur:.2f}s)")
         dead = [b for b in beats if b["kind"] == "dead"]
         half = [b for b in beats if b["kind"] == "half"]
         if dead:
@@ -284,7 +312,7 @@ def main():
                   + ", ".join(f"{b['id']}@{b['t']:.1f}s" for b in half[:12])
                   + (" …" if len(half) > 12 else ""))
 
-    if fails and not args.warn_only:
+    if (fails or nomeas) and not args.warn_only:
         return 1
     return 0
 

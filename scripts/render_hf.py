@@ -58,9 +58,30 @@ def npx_cmd() -> str:
 NPX = None  # main()에서 1회 해결
 
 
+SECRET_PREFIXES = ("OPENAI", "ANTHROPIC", "GITHUB", "GH_", "AWS", "SUPABASE", "META",
+                   "GOOGLE", "NOTION", "LINEAR", "POSTHOG", "DATABASE", "PG")
+SECRET_WORDS = ("TOKEN", "SECRET", "API_KEY", "APIKEY", "PASSWORD", "PASSWD", "CREDENTIAL",
+                "PRIVATE_KEY", "ACCESS_KEY")
+
+
+def scrub_env(source: dict) -> tuple:
+    """서드파티 npx 패키지에 넘길 환경 — 비밀로 보이는 변수는 전부 제거 (2026-09-02 리뷰 H3)."""
+    kept, dropped = {}, []
+    for k, v in source.items():
+        ku = k.upper()
+        if ku.startswith(SECRET_PREFIXES) or any(w in ku for w in SECRET_WORDS):
+            dropped.append(k)
+        else:
+            kept[k] = v
+    return kept, dropped
+
+
 def hf_run(project: pathlib.Path, argv: list, timeout: int = 600):
-    """HF CLI 서브프로세스 — cwd=프로젝트 폴더(.env 유출 차단), 스킬 복사/텔레메트리 차단."""
-    env = dict(os.environ)
+    """HF CLI 서브프로세스 — cwd=프로젝트 폴더(.env 유출 차단)·비밀 env 제거, 스킬 복사/텔레메트리 차단."""
+    env, dropped = scrub_env(os.environ)
+    if dropped:
+        print(f"[env] 비밀 후보 환경변수 {len(dropped)}개 제거 후 npx 실행: "
+              + ", ".join(sorted(dropped)[:8]) + (" …" if len(dropped) > 8 else ""))
     env["HYPERFRAMES_SKIP_SKILLS"] = "1"
     env["HYPERFRAMES_NO_TELEMETRY"] = "1"
     cmd = [NPX, "--yes", HF_PIN] + argv

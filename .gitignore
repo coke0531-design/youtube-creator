@@ -12,3 +12,10 @@ __pycache__/
 # 퇴역 스킬·구버전 보관 (로컬 전용, 원격 비공유)
 .archive/
 리모션/logs/
+
+# 코드리뷰 게이트 임시 산출물 (누적 이력 .code-review-history.jsonl만 추적)
+.code-review-report.md
+.code-review-unified-report.md
+.code-review-done
+.code-review-retry-count
+.codex-review-*

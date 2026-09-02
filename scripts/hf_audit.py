@@ -92,9 +92,16 @@ def parse_audio(fields):
 
 
 def find_storyboard(root: Path):
-    for c in (root / "STORYBOARD.md", root / "01_대본" / "STORYBOARD.md"):
-        if c.exists():
-            return c
+    """root와 상위 2단계에서 STORYBOARD.md(루트·01_대본·04_영상소스)를 찾는다 — check_storyboard와 동기."""
+    cur = root.resolve()
+    for _ in range(3):
+        for c in (cur / "STORYBOARD.md", cur / "01_대본" / "STORYBOARD.md",
+                  cur / "04_영상소스" / "STORYBOARD.md"):
+            if c.exists():
+                return c
+        if cur.parent == cur:
+            break
+        cur = cur.parent
     return None
 
 

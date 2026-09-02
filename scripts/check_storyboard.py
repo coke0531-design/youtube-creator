@@ -321,9 +321,31 @@ def check(frames, words, rep: Report):
 
 
 # --------------------------------------------------------------------------- 입력 해석
+TRANSCRIPT_DIRS = ("03_자막", "02_자막")   # 본편 / 리믹스
+
+
+def find_transcript(start: Path):
+    """start에서 위로 최대 4단계 올라가며 <조상>/(03_자막|02_자막)/transcript.json을 찾는다.
+
+    STORYBOARD.md가 작업 루트·01_대본·04_영상소스 어디에 있어도 같은 작업의 transcript를 잡는다
+    (2026-09-02 리뷰 H1 — 04_영상소스/STORYBOARD.md로 부르면 검사 D가 조용히 꺼졌다).
+    """
+    cur = start.resolve()
+    for _ in range(5):
+        for d in TRANSCRIPT_DIRS:
+            c = cur / d / "transcript.json"
+            if c.exists():
+                return c
+        if cur.parent == cur:
+            break
+        cur = cur.parent
+    return start / TRANSCRIPT_DIRS[0] / "transcript.json"   # 부재 표시용 기본 경로
+
+
 def resolve_inputs(target: Path, transcript_arg):
     if target.is_dir():
-        cands = [target / "STORYBOARD.md", target / "01_대본" / "STORYBOARD.md"]
+        cands = [target / "STORYBOARD.md", target / "01_대본" / "STORYBOARD.md",
+                 target / "04_영상소스" / "STORYBOARD.md"]
         sb = next((c for c in cands if c.exists()), None)
         if sb is None:
             die(f"[입력 오류] STORYBOARD.md를 찾지 못했다: {', '.join(str(c) for c in cands)}")
@@ -332,8 +354,8 @@ def resolve_inputs(target: Path, transcript_arg):
         sb = target
         if not sb.exists():
             die(f"[입력 오류] 파일이 없다: {sb}")
-        root = sb.parent if sb.parent.name != "01_대본" else sb.parent.parent
-    tr = Path(transcript_arg) if transcript_arg else root / "03_자막" / "transcript.json"
+        root = sb.parent
+    tr = Path(transcript_arg) if transcript_arg else find_transcript(root)
     return sb, tr
 
 
@@ -342,6 +364,8 @@ def main():
     ap.add_argument("target", help="작업 폴더 또는 STORYBOARD.md 경로")
     ap.add_argument("--transcript", help="transcript.json 경로 (기본: <작업>/03_자막/transcript.json)")
     ap.add_argument("--warn-only", action="store_true", help="위반이 있어도 exit 0")
+    ap.add_argument("--allow-no-transcript", action="store_true",
+                    help="transcript.json 부재를 FAIL이 아닌 WARN으로 (대본 단계 초안 검사용 옵트인)")
     ap.add_argument("--json", action="store_true", help="JSON으로 출력")
     args = ap.parse_args()
 
@@ -354,7 +378,11 @@ def main():
 
     rep = Report()
     if not words:
-        rep.add("WARN", "D", "-", f"transcript.json이 없어 어절 큐 대조를 건너뛴다 ({tr})")
+        # 어절 큐 대조(D)는 필수 게이트 — 부재를 조용히 넘기면 게이트가 없는 것과 같다.
+        rep.add("WARN" if args.allow_no_transcript else "FAIL", "D", "-",
+                f"transcript.json이 없어 어절 큐 대조를 못 한다 ({tr})"
+                + ("" if args.allow_no_transcript else
+                   " — --transcript로 지정하거나 초안 검사면 --allow-no-transcript"))
     check(frames, words, rep)
 
     if args.json:
