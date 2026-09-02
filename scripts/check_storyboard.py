@@ -325,7 +325,7 @@ TRANSCRIPT_DIRS = ("03_자막", "02_자막")   # 본편 / 리믹스
 
 
 def find_transcript(start: Path):
-    """start에서 위로 최대 4단계 올라가며 <조상>/(03_자막|02_자막)/transcript.json을 찾는다.
+    """start에서 위로 최대 2단계 올라가며 <조상>/(03_자막|02_자막)/transcript.json을 찾는다('결과물'에서 정지).
 
     STORYBOARD.md가 작업 루트·01_대본·04_영상소스 어디에 있어도 같은 작업의 transcript를 잡는다
     (2026-09-02 리뷰 H1 — 04_영상소스/STORYBOARD.md로 부르면 검사 D가 조용히 꺼졌다).

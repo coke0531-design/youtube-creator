@@ -35,6 +35,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import threading
 from pathlib import Path
 
 FFMPEG_TIMEOUT = 600   # 프레임 추출 상한(초) — 교착·행 방지
@@ -104,6 +105,20 @@ def diff_series(ffmpeg: str, video: Path, width: int, src_size):
     with tempfile.TemporaryFile() as errf:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errf,
                                 bufsize=frame_bytes * 4)
+        # 워치독: stdout 읽기 루프 도중 ffmpeg가 출력도 종료도 없이 멈추면 아래 wait(timeout)에
+        # 도달하지 못한다 → 타이머가 프로세스를 죽여 read()를 EOF로 풀고 rc≠0 경로로 보낸다.
+        timed_out = threading.Event()
+
+        def _watchdog():
+            timed_out.set()
+            try:
+                proc.kill()
+            except Exception:
+                pass
+
+        watchdog = threading.Timer(FFMPEG_TIMEOUT, _watchdog)
+        watchdog.daemon = True
+        watchdog.start()
         try:
             while True:
                 buf = proc.stdout.read(frame_bytes)
@@ -128,6 +143,10 @@ def diff_series(ffmpeg: str, video: Path, width: int, src_size):
             except subprocess.TimeoutExpired:
                 proc.kill()
                 proc.wait()
+                timed_out.set()
+            finally:
+                watchdog.cancel()
+            if timed_out.is_set():
                 die(f"[측정 실패] ffmpeg가 {FFMPEG_TIMEOUT}s 안에 끝나지 않아 강제 종료: {video}")
             try:
                 errf.seek(0)
