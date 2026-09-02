@@ -331,7 +331,9 @@ def find_transcript(start: Path):
     (2026-09-02 리뷰 H1 — 04_영상소스/STORYBOARD.md로 부르면 검사 D가 조용히 꺼졌다).
     """
     cur = start.resolve()
-    for _ in range(5):
+    for _ in range(3):                       # 작업 루트 / 01_대본·04_영상소스 / 그 하위 — 최대 2단계 상승
+        if cur.name == "결과물":             # 작업 폴더 모음까지 올라가면 다른 작업의 transcript를 잡는다
+            break
         for d in TRANSCRIPT_DIRS:
             c = cur / d / "transcript.json"
             if c.exists():

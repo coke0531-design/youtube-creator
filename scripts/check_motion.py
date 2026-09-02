@@ -34,7 +34,10 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
+
+FFMPEG_TIMEOUT = 600   # 프레임 추출 상한(초) — 교착·행 방지
 
 if hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -91,39 +94,46 @@ def diff_series(ffmpeg: str, video: Path, width: int, src_size):
            "-pix_fmt", "gray", "-f", "rawvideo", "-"]
     if width < 2 or frame_bytes <= 0:
         die(f"[입력 오류] 분석 폭이 비정상이다: --width {width}")
-    # stderr는 PIPE로 받아 실패 사유를 보존한다 — DEVNULL+반환코드 미검사는 "측정 실패"를
+    # stderr는 임시 파일로 받아 실패 사유를 보존한다 — DEVNULL+반환코드 미검사는 "측정 실패"를
     # "완벽히 움직였다"(정지 0%)와 같은 PASS로 만들었다 (2026-09-02 리뷰 C1).
-    proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            bufsize=frame_bytes * 4)
+    # PIPE는 금지: stdout 루프가 끝난 뒤에야 읽으면 ffmpeg가 stderr 버퍼를 채우는 순간 상호 대기(교착).
     ring = []          # 최근 6프레임
     d1, d5 = [], []
     k = 0
     err = b""
-    try:
-        while True:
-            buf = proc.stdout.read(frame_bytes)
-            if not buf or len(buf) < frame_bytes:
-                break
-            cur = np.frombuffer(buf, dtype=np.uint8).astype(np.int16)
-            if ring:
-                d1.append((k / SAMPLE_FPS, float(np.abs(cur - ring[-1]).mean())))
-            if len(ring) >= 5:
-                d5.append((k / SAMPLE_FPS, float(np.abs(cur - ring[-5]).mean())))
-            ring.append(cur)
-            if len(ring) > 5:
-                ring.pop(0)
-            k += 1
-    finally:
+    with tempfile.TemporaryFile() as errf:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=errf,
+                                bufsize=frame_bytes * 4)
         try:
-            proc.stdout.close()
-        except Exception:
-            pass
-        try:
-            err = proc.stderr.read() or b""
-            proc.stderr.close()
-        except Exception:
-            pass
-        proc.wait()
+            while True:
+                buf = proc.stdout.read(frame_bytes)
+                if not buf or len(buf) < frame_bytes:
+                    break
+                cur = np.frombuffer(buf, dtype=np.uint8).astype(np.int16)
+                if ring:
+                    d1.append((k / SAMPLE_FPS, float(np.abs(cur - ring[-1]).mean())))
+                if len(ring) >= 5:
+                    d5.append((k / SAMPLE_FPS, float(np.abs(cur - ring[-5]).mean())))
+                ring.append(cur)
+                if len(ring) > 5:
+                    ring.pop(0)
+                k += 1
+        finally:
+            try:
+                proc.stdout.close()
+            except Exception:
+                pass
+            try:
+                proc.wait(timeout=FFMPEG_TIMEOUT)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait()
+                die(f"[측정 실패] ffmpeg가 {FFMPEG_TIMEOUT}s 안에 끝나지 않아 강제 종료: {video}")
+            try:
+                errf.seek(0)
+                err = errf.read() or b""
+            except Exception:
+                pass
     if proc.returncode != 0:
         die(f"[측정 실패] ffmpeg 프레임 추출 rc={proc.returncode}: "
             f"{err.decode('utf-8', 'replace').strip()[-600:]}")
@@ -134,10 +144,16 @@ def diff_series(ffmpeg: str, video: Path, width: int, src_size):
 
 def freeze_intervals(ffmpeg: str, video: Path):
     """numpy 폴백 — freezedetect로 정지 구간 [(start,end)] 추출."""
-    p = subprocess.run(
-        [ffmpeg, "-hide_banner", "-i", str(video),
-         "-vf", "freezedetect=n=0.001:d=1.5", "-map", "0:v:0", "-f", "null", "-"],
-        capture_output=True, text=True, encoding="utf-8", errors="replace")
+    try:
+        p = subprocess.run(
+            [ffmpeg, "-hide_banner", "-i", str(video),
+             "-vf", "freezedetect=n=0.001:d=1.5", "-map", "0:v:0", "-f", "null", "-"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=FFMPEG_TIMEOUT)
+    except subprocess.TimeoutExpired:
+        die(f"[측정 실패] freezedetect가 {FFMPEG_TIMEOUT}s 안에 끝나지 않았다: {video}")
+    if p.returncode != 0:
+        die(f"[측정 실패] freezedetect rc={p.returncode}: {p.stderr.strip()[-600:]}")
     starts = [float(x) for x in re.findall(r"freeze_start:\s*(-?\d+\.?\d*)", p.stderr)]
     ends = [float(x) for x in re.findall(r"freeze_end:\s*(-?\d+\.?\d*)", p.stderr)]
     out = []
@@ -152,11 +168,13 @@ def overlap(a0, a1, b0, b1):
 
 
 # --------------------------------------------------------------------- 판정
-def evaluate(slides, d5, d1, args, freezes=None):
+def evaluate(slides, d5, d1, args, freezes=None, duration=None):
     rows = []
     for s in slides:
         start, end = float(s["start"]), float(s["end"])
         length = end - start
+        # 영상 길이를 벗어난 슬라이드는 길이와 무관하게 측정 불가(부분 캡처) — 폴백 모드도 포함.
+        out_of_video = duration is not None and end > duration + GRID
         if freezes is not None:
             frozen = sum(overlap(start, end, f0, f1 if f1 is not None else end) for f0, f1 in freezes)
             ratio = frozen / length if length > 0 else 0.0
@@ -169,7 +187,8 @@ def evaluate(slides, d5, d1, args, freezes=None):
             else:
                 ratio = sum(1 for v in vals if v < args.eps) / samples
         # 표본 0 = 측정 불가(부분 캡처·구간 이탈). OK가 아니라 NOMEAS로 승격해 fail-loud.
-        if length > args.min_len and samples == 0:
+        # 짧은 슬라이드(≤min_len)도 d5 표본이 하나는 나와야 할 길이(>2·GRID)면 동일 취급.
+        if out_of_video or (samples == 0 and length > 2 * GRID):
             level = "NOMEAS"
         elif length > args.min_len and ratio > args.fail:
             level = "FAIL"
@@ -266,13 +285,14 @@ def main():
     except ImportError:
         freezes = freeze_intervals(ffmpeg, video)
 
-    rows = evaluate(slides, d5, d1, args, freezes)
+    rows = evaluate(slides, d5, d1, args, freezes, duration=dur)
     beats = dead_beats(slides, d1, args.eps) if freezes is None else []
 
     fails = [r for r in rows if r["level"] == "FAIL"]
     warns = [r for r in rows if r["level"] == "WARN"]
     nomeas = [r for r in rows if r["level"] == "NOMEAS"]
-    judged = [r for r in rows if r["len"] > args.min_len]
+    # 평균에는 측정된 슬라이드만 — NOMEAS를 0.0으로 넣으면 잘린 캡처가 "좋아진" 것처럼 보인다.
+    judged = [r for r in rows if r["len"] > args.min_len and r["level"] != "NOMEAS"]
     avg = round(sum(r["still_ratio"] for r in judged) / len(judged), 3) if judged else 0.0
 
     if args.json:

@@ -95,6 +95,8 @@ def find_storyboard(root: Path):
     """root와 상위 2단계에서 STORYBOARD.md(루트·01_대본·04_영상소스)를 찾는다 — check_storyboard와 동기."""
     cur = root.resolve()
     for _ in range(3):
+        if cur.name == "결과물":             # 작업 폴더 모음까지 올라가면 다른 작업 것을 잡는다
+            break
         for c in (cur / "STORYBOARD.md", cur / "01_대본" / "STORYBOARD.md",
                   cur / "04_영상소스" / "STORYBOARD.md"):
             if c.exists():

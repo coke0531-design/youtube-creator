@@ -169,7 +169,7 @@ def run(timeline_path, media: bool = True, skip_capture: bool = False) -> list:
             errors.append(f"D: 오버레이 {n} 원본 없음: {src}")
     for a, b in zip(ordered, ordered[1:]):
         if b["start"] < a["end"] - 0.001:
-            errors.append(f"D: 오버레이 {a['n']}↔{b['n']} 구간 겹침")
+            errors.append(f"D: 오버레이 {a.get('n')}↔{b.get('n')} 구간 겹침")
 
     # F. 콜라주 오프닝 (본편) — 첫 장면은 반드시 콜라주 (SKILL.md Step 6.7, 2026-08-18)
     if tl.get("type", "main") == "main":
@@ -195,6 +195,8 @@ def run(timeline_path, media: bool = True, skip_capture: bool = False) -> list:
         if cap.is_file() and not skip_capture:
             checks.append(("capture.mp4", cap, duration, MEDIA_TOL, True))
         for o in overlays:
+            if not isinstance(o.get("n"), int):
+                continue   # n 비정상은 D에서 이미 오류로 기록됨
             ov = base / "04_영상소스" / f"ov{o['n']}.mp4"
             if ov.is_file():
                 seg = o["end"] - o["start"]
