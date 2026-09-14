@@ -331,13 +331,16 @@ def cut_and_concat(ff: str, plan: dict, tmp: pathlib.Path, nvenc: bool) -> pathl
         cmd = [ff, "-hide_banner", "-loglevel", "error", "-y", "-i", str(plan["src"])]
         if not has_audio:
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
-        cmd += ["-ss", f"{a:.3f}", "-to", f"{b:.3f}"]
-        cmd += ["-map", "0:v:0", "-map", ("0:a:0" if has_audio else "1:a:0")]
         if has_audio:
-            # 출력 시킹(-ss/-to가 -i 뒤)이라 필터는 원본 타임라인을 본다 → 페이드 st는 절대 시각(a, b-f)으로 지정.
-            f = min(CUT_FADE_SEC, (b - a) / 2)
-            if f > 0:
-                cmd += ["-af", f"afade=t=in:st={a:.3f}:d={f:.3f},afade=t=out:st={max(b - f, a):.3f}:d={f:.3f}"]
+            # 영상·오디오 모두 trim 필터로 자르고 PTS 를 0 으로 재기준화한 뒤 세그먼트 상대 페이드(cut_audio_only 와 같은 체인).
+            # -ss/-to 출력 시킹 + 절대 시각 페이드 조합은 시킹·필터 타임베이스 해석이 ffmpeg 버전에 따라 달라 페이드가
+            # 엉뚱한 자리(무음화)에 걸릴 수 있다(2026-09-14 리뷰) — trim 필터도 0부터 디코드하므로 정확도는 같다.
+            cmd += ["-filter_complex",
+                    f"[0:v]trim=start={a:.3f}:end={b:.3f},setpts=PTS-STARTPTS[v];"
+                    f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,{_cut_fade_chain(b - a)}[a]",
+                    "-map", "[v]", "-map", "[a]"]
+        else:
+            cmd += ["-ss", f"{a:.3f}", "-to", f"{b:.3f}", "-map", "0:v:0", "-map", "1:a:0"]
         cmd += _enc_v(nvenc)
         cmd += ["-r", str(FPS), "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]

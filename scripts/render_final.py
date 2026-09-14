@@ -64,12 +64,12 @@ RENDER_OUT = REMOTION / "out" / "final.mp4"
 # ── ffmpeg 자막(ASS) 규격 — '흰 상자 자막' (2026-08-16 레퍼런스 픽셀 실측으로 전면 교체) ──
 # 레퍼런스: Sherlock Hyunjoon 모듈러 주택 편(youtu.be/QhvJRQ9q4F0)의 번인 자막을 720p 프레임에서
 # 픽셀 실측 → 1080p 환산. 스펙(자막-안전영역.md '흰 상자 자막' 절이 SSOT):
-#   글자   : 잉크 #141413, 볼드, Pretendard 52px @1080p (실측 글리프 높이 25px@720p=37.5px@1080p — Pretendard는 글리프가 0.72em이라 52px로 환산)
+#   글자   : 잉크 #141413, 볼드, Pretendard 60px @1080p (2026-09-14 오너 채택 V4 — 이전 52px = 실측 글리프 25px@720p=37.5px@1080p 환산)
 #   상자   : 흰색(#FDFEFE)이 텍스트 폭에 밀착, 패딩 ≈10px, 테두리 2px #160E01(딥 앰버 블랙)
 #   그림자 : 다크 앰버 #3B2603 하드 오프셋(우·하 대각 ≈8px, 블러 없음)
 #            (레퍼런스는 그 채널의 다크그린 #063B34 — 우리는 브랜드 앰버 #F59E0B를 동일 명도로
 #             스케일(×0.24)한 값으로 교체. 톤·어두움은 유지, 색상만 브랜드 계열. 2026-08-16 오너 지시)
-#   위치   : 하단 중앙, 상자 중심이 바닥에서 86px @1080p (실측 8%H)
+#   위치   : 하단 중앙, 상자 중심이 바닥에서 145px @1080p (2026-09-14 V4: 텍스트 하단 여백 108px — 이전 86px = 실측 8%H)
 #   등장   : 컷 전환(페이드·팝 없음), 발화 내내 상시 표시
 # 상자가 어떤 배경에서도 가독성을 보장하므로 구간별 흰색 오버라이드는 폐지(전 컷 동일 스타일).
 # ASS 색은 &HAABBGGRR: 잉크(20,20,19)→&H00131414, 상자(253,254,254)→&H00FEFEFD,
@@ -133,7 +133,7 @@ def _ass_params(kind: str):
     ASS Alignment=2(하단 정렬)의 MarginV는 '텍스트 하단↔화면 하단' 거리다. FinalVideo/CapCut은 자막
     '중심'을 center_from_bottom에 놓으므로, 중심을 맞추려면 절반 줄높이만큼 내려 준다(162-37=125 / 384-37=347)."""
     spec = ASS_SPEC[kind]
-    fontsize = CAPTION_OVERRIDE["fontsize"] or spec["fontsize"]
+    fontsize = spec["fontsize"] if CAPTION_OVERRIDE["fontsize"] is None else CAPTION_OVERRIDE["fontsize"]
     line_h = round(fontsize * 1.25)              # FinalVideo lineHeight:1.25 → 75px
     margin_v = spec["center_from_bottom"] - line_h // 2
     if CAPTION_OVERRIDE["bottom"] is not None:
@@ -643,9 +643,13 @@ def main() -> None:
     ap.add_argument("--out", help="ffmpeg 엔진 출력 파일명/경로 (기본 완성본/final.mp4 — 비교 시 이름 분리용)")
     ap.add_argument("--dry-run", action="store_true",
                     help="ffmpeg 엔진: 검증·ASS 생성·명령 구성까지만 (인코딩 미실행)")
-    ap.add_argument("--caption-fontsize", type=int, default=None,
+    def _pos_int(v):
+        n = int(v)
+        if n <= 0: raise argparse.ArgumentTypeError(f"양수여야 한다: {v}")
+        return n
+    ap.add_argument("--caption-fontsize", type=_pos_int, default=None,
                     help="자막 글자 크기 덮어쓰기(px, PlayRes 기준 — 본편 기본 60). 비교 변주용, 기본 규격은 바꾸지 않는다")
-    ap.add_argument("--caption-bottom", type=int, default=None,
+    ap.add_argument("--caption-bottom", type=_pos_int, default=None,
                     help="자막 텍스트 하단↔화면 하단 거리 덮어쓰기(px = ASS MarginV — 본편 기본 108). 비교 변주용")
     ap.add_argument("--no-limiter", action="store_true",
                     help="오디오 라우드니스 정규화(-14 LUFS/-1 dBTP loudnorm) 끄기 (기본 ON — 녹음 게인 과대·과소 모두 흡수)")
@@ -664,6 +668,9 @@ def main() -> None:
     kind = tl.get("type", "main")
     if kind not in ("main", "short"):
         sys.exit(f"[중단] 알 수 없는 타임라인 type='{kind}' — 'main' 또는 'short'만 지원합니다.")
+    if (args.caption_fontsize or args.caption_bottom) and (kind != "main" or args.engine != "ffmpeg"):
+        sys.exit("[중단] --caption-fontsize/--caption-bottom 은 본편(type=main) + ffmpeg 엔진에서만 유효합니다 "
+                 "(쇼츠 규격·Remotion CaptionLayer 는 별도 SSOT).")
     if kind == "short" and args.engine == "remotion":
         sys.exit("[중단] 쇼츠(9:16, type=short)는 remotion 엔진 미지원 — ffmpeg 엔진(기본) 또는 CapCut 경로를 쓰세요.")
 

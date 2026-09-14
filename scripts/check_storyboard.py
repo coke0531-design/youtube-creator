@@ -198,6 +198,9 @@ def is_reveal(text: str) -> bool:
     low = text.lower()
     if any(h in low for h in HOLD_MARKERS) and not any(r in low for r in REVEAL_HINT):
         return False
+    # 카메라 이동만 있고 리빌 표식이 없는 Scene(팬/fit 만) 은 리빌로 세지 않는다 — 스토리보드-규격 카메라 표기(2026-09-14)
+    if any(c in low for c in CAMERA_HINT) and not any(r in low for r in REVEAL_HINT):
+        return False
     return True
 
 

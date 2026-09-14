@@ -558,6 +558,17 @@
       };
     })();
   </script>
+  <!-- 라벨 칩 가로 중심 선언 data-cx="950" (2026-09-14): 폰트 로드 뒤 실측 폭으로 left 를 계산해 요소의 가로 중심을 그 x 에 맞춘다.
+       scripts/check_layout.py 정렬 게이트(라벨 칩 ↔ 위 도형 가로 중심 ≤ 8px)의 짝. __capture.ready 는 fonts.ready 뒤 500ms 라 캡처 전에 끝난다. -->
+  <script>
+    document.fonts.ready.then(() => {
+      document.querySelectorAll('[data-cx]').forEach(e => {
+        const cx = parseFloat(e.dataset.cx);
+        if (!isFinite(cx)) throw new Error('data-cx 는 유한수여야 함: ' + e.dataset.cx);
+        e.style.left = (cx - e.offsetWidth / 2) + 'px';
+      });
+    });
+  </script>
   <script>
     if (window.gsap) {
       /* 여기에 슬라이드별 타임라인을 등록한다 */

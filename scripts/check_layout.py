@@ -195,6 +195,71 @@ def analyze(snap, max_units, tol_row, tol_label):
     return out
 
 
+def run(html, timeline, step=0.2, max_units=8, tol=6.0, tol_label=8.0, skip_overlay=True, times=None):
+    """게이트 본체(capture_slides.py 가 캡처 전에 자동 호출). 반환 = (found, counts, maxu, times, skipped)
+    found: {(slide, 종류, 키): {desc, times}} — 비어 있으면 PASS."""
+    html, timeline = pathlib.Path(html), pathlib.Path(timeline)
+    tl = json.loads(timeline.read_text(encoding="utf-8"))
+    if "duration" not in tl: raise SystemExit(f"[오류] 타임라인에 duration 이 없다: {timeline}")
+    dur = float(tl["duration"])
+    if times is None and not (step > 0): raise SystemExit(f"[오류] --step 은 양수여야 한다: {step}")
+    # 오버레이(콜라주 등 video_overlays 전부)가 덮는 구간은 슬라이드가 보이지 않으므로 건너뛴다 — 건너뛴 구간은 리포트에 명시
+    skipped = [] if not skip_overlay else [(float(o["start"]), float(o["end"])) for o in tl.get("video_overlays", [])]
+    if times is not None:
+        times = sorted(float(t) for t in times)          # __capture.seek 는 순방향 전용 — 역순 입력이면 앞 시각이 건너뛰어진다
+    else:
+        times, t = [], 0.0
+        while t < dur - 1e-6:
+            if not any(s <= t < e for s, e in skipped): times.append(round(t, 3))
+            t += step
+
+    found = {}   # (slide, kind, key) -> {desc, times}
+    maxu = {}
+    with sync_playwright() as p:
+        b = p.chromium.launch(args=["--force-device-scale-factor=1"])
+        pg = b.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=1)
+        pg.goto(html.resolve().as_uri() + "?capture=1")
+        pg.wait_for_function("window.__capture && window.__capture.ready", timeout=30000)
+        for t in times:
+            pg.evaluate(f"window.__capture.seek({t})")
+            pg.wait_for_timeout(25)
+            snap = pg.evaluate(COLLECT_JS, [SOLID, STROKE_SKIP])
+            if not snap: continue
+            sid = snap["slide"] or "?"
+            n_units = len({(s["grp"] or i) for i, s in enumerate(snap["solids"]) if s["op"] >= 0.5 and inter(s["rect"], [0, 0, VW, VH]) > 0})
+            if n_units > maxu.get(sid, (0, 0))[0]: maxu[sid] = (n_units, t)
+            for kind, key, desc in analyze(snap, max_units, tol, tol_label):
+                e = found.setdefault((sid, kind, key), {"desc": desc, "times": []})
+                e["times"].append(t)
+        b.close()
+    kinds = ["잘림", "겹침", "과밀", "정렬"]
+    counts = {k: sum(1 for (sid, kd, key) in found if kd == k) for k in kinds}
+    return found, counts, maxu, times, skipped
+
+
+def format_report(html, found, counts, maxu, times, skipped, step, max_units):
+    def rng(ts):
+        ts = sorted(ts); segs = []; s0 = p0 = ts[0]
+        for x in ts[1:]:
+            if x - p0 > step * 1.5 + 1e-6: segs.append((s0, p0)); s0 = x
+            p0 = x
+        segs.append((s0, p0))
+        return ", ".join(f"{s:.1f}~{e:.1f}s" if e > s else f"{s:.1f}s" for s, e in segs[:4]) + (" …" if len(segs) > 4 else "")
+    out = [f"# check_layout — {pathlib.Path(html).name}  (검사 시각 {len(times)}개 · step {step}s · 도형 상한 {max_units})",
+           "| 종류 | 건수 |", "|---|---|"]
+    out += [f"| {k} | {counts[k]} |" for k in ["잘림", "겹침", "과밀", "정렬"]]
+    if skipped: out.append("\n건너뛴 구간(오버레이가 덮음, 미검사): " + ", ".join(f"{s:.1f}~{e:.1f}s" for s, e in skipped))
+    out.append("\n## 슬라이드별 최대 도형 단위")
+    out += [f"- {sid}: {n}단위 (t={t:.1f}s)" for sid, (n, t) in sorted(maxu.items())]
+    if found:
+        out.append("\n## 위반 목록")
+        out += [f"- [{kd}] {sid}: {e['desc']} — {rng(e['times'])}" for (sid, kd, key), e in sorted(found.items(), key=lambda kv: (kv[0][0], kv[0][1], min(kv[1]["times"])))]
+    verdict = "PASS" if not found else "FAIL"
+    out.append(f"\n판정: {verdict} (잘림 {counts['잘림']} · 겹침 {counts['겹침']} · 과밀 {counts['과밀']} · 정렬 {counts['정렬']})")
+    out.append("참고: 정착 상태만 검사(트윈 중·카메라 이동 중 제외). 임계는 완화하지 말고 장면 좌표·프레임을 고친다.")
+    return "\n".join(out), verdict
+
+
 def main():
     ap = argparse.ArgumentParser(description="레이아웃 실측 게이트(잘림·겹침·과밀·정렬)")
     ap.add_argument("html", type=pathlib.Path)
@@ -208,65 +273,11 @@ def main():
     ap.add_argument("--json", type=pathlib.Path)
     ap.add_argument("--warn-only", action="store_true")
     a = ap.parse_args()
-
-    tl = json.loads(a.timeline.read_text(encoding="utf-8"))
-    dur = float(tl["duration"])
-    slides = tl.get("slides", [])
-    covers = [] if a.no_skip_overlay else [(o["start"], o["end"]) for o in tl.get("video_overlays", []) if o.get("style") == "collage" or True]
-    if a.times: times = list(a.times)
-    else:
-        times, t = [], 0.0
-        while t < dur - 1e-6:
-            if not any(s <= t < e for s, e in covers): times.append(round(t, 3))
-            t += a.step
-
-    found = {}   # (slide, kind, key) -> {desc, times}
-    with sync_playwright() as p:
-        b = p.chromium.launch(args=["--force-device-scale-factor=1"])
-        pg = b.new_page(viewport={"width": VW, "height": VH}, device_scale_factor=1)
-        pg.goto(a.html.resolve().as_uri() + "?capture=1")
-        pg.wait_for_function("window.__capture && window.__capture.ready", timeout=30000)
-        maxu = {}
-        for t in times:
-            pg.evaluate(f"window.__capture.seek({t})")
-            pg.wait_for_timeout(25)
-            snap = pg.evaluate(COLLECT_JS, [SOLID, STROKE_SKIP])
-            if not snap: continue
-            sid = snap["slide"] or "?"
-            n_units = len({(s["grp"] or i) for i, s in enumerate(snap["solids"]) if s["op"] >= 0.5 and inter(s["rect"], [0, 0, VW, VH]) > 0})
-            if n_units > maxu.get(sid, (0, 0))[0]: maxu[sid] = (n_units, t)
-            for kind, key, desc in analyze(snap, a.max_units, a.tol, a.tol_label):
-                k = (sid, kind, key)
-                e = found.setdefault(k, {"desc": desc, "times": []})
-                e["times"].append(t)
-        b.close()
-
-    def label_of(sid):
-        for s in slides:
-            if s.get("id", "").lower() == sid.lower() or s.get("label") == sid: return s.get("label", "")
-        return ""
-    def rng(ts):
-        ts = sorted(ts); segs = []; s0 = p0 = ts[0]
-        for x in ts[1:]:
-            if x - p0 > a.step * 1.5 + 1e-6: segs.append((s0, p0)); s0 = x
-            p0 = x
-        segs.append((s0, p0))
-        return ", ".join(f"{s:.1f}~{e:.1f}s" if e > s else f"{s:.1f}s" for s, e in segs[:4]) + (" …" if len(segs) > 4 else "")
-
-    kinds = ["잘림", "겹침", "과밀", "정렬"]
-    counts = {k: sum(1 for (sid, kd, key) in found if kd == k) for k in kinds}
-    print(f"# check_layout — {a.html.name}  (검사 시각 {len(times)}개 · step {a.step}s · 도형 상한 {a.max_units})")
-    print("| 종류 | 건수 |\n|---|---|")
-    for k in kinds: print(f"| {k} | {counts[k]} |")
-    print("\n## 슬라이드별 최대 도형 단위")
-    for sid, (n, t) in sorted(maxu.items()): print(f"- {sid}: {n}단위 (t={t:.1f}s)")
-    if found:
-        print("\n## 위반 목록")
-        for (sid, kd, key), e in sorted(found.items(), key=lambda kv: (kv[0][0], kv[0][1], min(kv[1]["times"]))):
-            print(f"- [{kd}] {sid}: {e['desc']} — {rng(e['times'])}")
-    verdict = "PASS" if not found else "FAIL"
-    print(f"\n판정: {verdict} (잘림 {counts['잘림']} · 겹침 {counts['겹침']} · 과밀 {counts['과밀']} · 정렬 {counts['정렬']})")
-    print("참고: 정착 상태만 검사(트윈 중·카메라 이동 중 제외). 임계는 완화하지 말고 장면 좌표·프레임을 고친다.")
+    if a.times is None and not (a.step > 0): ap.error(f"--step 은 양수여야 한다: {a.step}")
+    found, counts, maxu, times, skipped = run(a.html, a.timeline, a.step, a.max_units, a.tol, a.tol_label,
+                                              skip_overlay=not a.no_skip_overlay, times=a.times)
+    text, verdict = format_report(a.html, found, counts, maxu, times, skipped, a.step, a.max_units)
+    print(text)
     if a.json:
         a.json.write_text(json.dumps({"html": str(a.html), "counts": counts, "max_units": {k: v for k, v in maxu.items()},
                                       "issues": [{"slide": s, "kind": k, "key": key, "desc": e["desc"], "times": e["times"]} for (s, k, key), e in found.items()]},

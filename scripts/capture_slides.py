@@ -254,6 +254,8 @@ def main() -> None:
     ap.add_argument("--fps", type=int, default=30, help="프레임레이트 (기본 30)")
     ap.add_argument("--mode", choices=["frames", "realtime"], default="frames",
                     help="frames=가상시간 프레임 캡처(기본·고품질), realtime=스크린캐스트(폴백)")
+    ap.add_argument("--skip-layout-check", action="store_true",
+                    help="레이아웃 게이트(check_layout.py: 잘림·겹침·과밀·정렬) 생략 — 진단용, 완성본 경로에서는 쓰지 않는다")
     ap.add_argument("--skip-caption-check", action="store_true",
                     help="자막 안전 영역 게이트 생략(의도적 침범 연출 등 예외 시에만)")
     ap.add_argument("--_chunk", nargs=2, type=float, metavar=("A", "B"),
@@ -305,6 +307,21 @@ def main() -> None:
                     print(f"  ✗ {tag} (t={t:.2f}s, {frac:.3f}%) {label}", file=sys.stderr)
                 sys.exit(f"[중단] 자막 안전 영역 침범 {len(c_violations)}건 — 슬라이드 축소/재배치 후 재캡처 "
                          "(scripts/check_caption_safe.py, 우회는 --skip-caption-check)")
+        # 레이아웃 게이트 2 — 잘림·겹침·과밀·정렬을 DOM 실측으로 캡처 전에 강제 (본편 16:9 한정, 2026-09-14).
+        # 근거: 풀링013 1분 비교에서 오너 지적 3건(겹침·과밀·정렬)을 기존 게이트가 하나도 못 봤다.
+        if kind == "main" and not args.skip_layout_check:
+            try:
+                import check_layout
+            except ImportError as ex:
+                sys.exit(f"[오류] check_layout.py 로드 실패 — 레이아웃 게이트 없이 캡처하지 않습니다: {ex}")
+            print("[게이트] 레이아웃 실측 검사 (check_layout: 잘림·겹침·과밀·정렬) …")
+            l_found, l_counts, l_maxu, l_times, l_skipped = check_layout.run(args.html, args.timeline)
+            l_text, l_verdict = check_layout.format_report(args.html, l_found, l_counts, l_maxu, l_times, l_skipped, 0.2, 8)
+            if l_found:
+                print(l_text, file=sys.stderr)
+                sys.exit(f"[중단] 레이아웃 위반 {sum(l_counts.values())}건 — 장면 좌표·카메라 프레임을 고친 뒤 재캡처 "
+                         "(scripts/check_layout.py, 우회는 --skip-layout-check)")
+            print(f"  통과 — 검사 시각 {len(l_times)}개, 슬라이드별 최대 도형 단위 " + ", ".join(f"{k} {v[0]}" for k, v in sorted(l_maxu.items())))
     if duration is None or duration <= 0:
         sys.exit("[오류] 양수 duration 필요 — --duration 또는 --timeline(duration 포함) 지정")
 
@@ -322,6 +339,18 @@ def main() -> None:
               f"({width}x{height}, 레이아웃 {design_w}x{design_h}, {CHUNK_SEC:.0f}s 청크 + 워치독)")
         run_frames_chunked(args.html, duration, args.fps, width, height, kind, out)
         print(f"[2/2] 완료: {out} ({duration:.1f}s, {args.fps}fps, {width}x{height})")
+        # 캔버스 카메라 슬라이드(.slide--canvas)는 padding 기반 자막 안전영역 방어가 없고 카메라가 움직이므로,
+        # 구간 중간 1점 검사로는 부족하다 → 캡처 결과 전 프레임을 다시 검사한다(2026-09-14, C2).
+        if kind == "main" and not args.skip_caption_check and "slide--canvas" in args.html.read_text(encoding="utf-8", errors="ignore"):
+            import check_caption_safe
+            print("[게이트] 캔버스 카메라 감지 — 캡처 전 프레임 자막 안전 영역 검사 (check_caption_safe --capture) …")
+            bad = check_caption_safe.run_capture(out, check_caption_safe.DEFAULT_THRESHOLD)
+            if bad:
+                for t, frac in bad[:12]:
+                    print(f"  ✗ t={t:.1f}s ({frac:.3f}%)", file=sys.stderr)
+                sys.exit(f"[중단] 캡처 전 프레임 자막 안전 영역 침범 {len(bad)}프레임 — 캔버스 카메라 프레임을 고친 뒤 재캡처 "
+                         "(capture.mp4 는 진단용으로 남겨 둠, 우회는 --skip-caption-check)")
+            print("  통과 — 침범 0프레임")
         return
 
     workdir = tempfile.mkdtemp(prefix="capture_")

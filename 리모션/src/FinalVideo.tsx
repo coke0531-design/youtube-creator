@@ -20,8 +20,8 @@ import {Caption} from './srt';
 //
 // 자막 = '흰 상자 자막' (2026-08-16 레퍼런스 픽셀 실측 — 스펙 SSOT는 자막-안전영역.md,
 // 수치는 scripts/render_final.py ASS_BOX_*와 1:1 동기):
-//   잉크 글자 52px 볼드 + 흰 상자(텍스트 밀착, 패딩 8/10px) + 테두리 2px #160E01
-//   + 다크 앰버 #3B2603 하드 오프셋 섀도(우·하 10px, 블러 없음), 상자 중심 하단 86px, 컷 등장.
+//   잉크 글자 60px 볼드 + 흰 상자(텍스트 밀착, 패딩 8/10px) + 테두리 2px #160E01
+//   + 다크 앰버 #3B2603 하드 오프셋 섀도(우·하 10px, 블러 없음), 상자 중심 하단 145px, 컷 등장.
 //   상자가 배경 무관 가독성을 보장하므로 오버레이 구간 흰색 오버라이드는 폐지.
 
 export const FPS = 30;
@@ -33,8 +33,8 @@ export type FinalProps = {
   overlays: Overlay[];
 };
 
-// 레퍼런스 실측(720p→1080p 환산): 자막 상자 '중심'의 하단거리 86px (8%H)
-const CAPTION_CENTER_FROM_BOTTOM = 86;
+// 자막 상자 '중심'의 하단거리 145px — 2026-09-14 오너 채택(V4: 텍스트 하단 여백 54→108px). 이전 86px(레퍼런스 8%H). render_final.py ASS_SPEC 과 1:1
+const CAPTION_CENTER_FROM_BOTTOM = 145;
 const CAPTION_INK = COLORS.ink; // #141413 (기본 잉크)
 
 const CaptionLayer: React.FC<FinalProps> = ({captions}) => {
@@ -52,7 +52,7 @@ const CaptionLayer: React.FC<FinalProps> = ({captions}) => {
         left: 0,
         right: 0,
         bottom: CAPTION_CENTER_FROM_BOTTOM,
-        transform: 'translateY(50%)', // bottom 기준선을 자막 '중심'이 86px에 오도록 보정
+        transform: 'translateY(50%)', // bottom 기준선을 자막 '중심'이 145px에 오도록 보정
         display: 'flex',
         justifyContent: 'center',
         padding: '0 160px',
@@ -62,7 +62,7 @@ const CaptionLayer: React.FC<FinalProps> = ({captions}) => {
         style={{
           fontFamily: FONT_STACK,
           fontWeight: 800, // 레퍼런스 볼드 굵기 (ASS Bold=-1 상당)
-          fontSize: 52, // 레퍼런스 글리프 높이 37.5px@1080p 환산
+          fontSize: 60, // 2026-09-14 오너 채택(V4, 이전 52px 레퍼런스 환산). render_final.py ASS_SPEC 과 1:1
           lineHeight: 1.0,
           color: CAPTION_INK,
           backgroundColor: '#FDFEFE', // 흰 상자 — 텍스트 폭 밀착

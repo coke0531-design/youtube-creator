@@ -98,7 +98,8 @@ description: YouTube 본편(16:9) 영상 소스 제작 스킬. 대본+나레이�
                  자동 실행 — 침범이면 중단. 템플릿 패딩은 콘텐츠가 가용 높이를 넘으면 뚫린다)
 6.97 레이아웃 게이트 scripts/check_layout.py — presentation.html 을 시간축으로 훑어 DOM 실측으로
                  잘림(프레임 가장자리 걸침)·겹침(도형 교차·선 관통)·과밀(한 프레임 도형 >8단위)·정렬(라벨·같은 줄)
-                 4종을 판정. 캡처 전에 통과해야 한다(2026-09-14 오너 지적 3건의 재발 방지 — 임계 완화 금지)
+                 4종을 판정. capture_slides.py 가 본편 캡처 전 자동 실행(위반이면 중단). 캔버스 카메라(.slide--canvas)
+                 슬라이드가 있으면 캡처 직후 check_caption_safe --capture(전 프레임)도 자동 실행 (2026-09-14 — 임계 완화 금지)
 7. 캡처          scripts/capture_slides.py — 헤드리스 프레임 캡처 → 04_영상소스/capture.mp4 (30fps·1440p)
 7.5 모션 게이트   scripts/check_motion.py — capture.mp4 프레임 차분으로 "80~90% 정지 화면" 회귀 차단
                  (선택: scripts/hf_audit.py — 레이아웃 겹침·잘림·명암비 DOM 감사)
@@ -582,7 +583,8 @@ python scripts/analyze_motion.py "레퍼런스.mp4" --scene 0.2   # 컷이 덜 �
 - [ ] 타임라인.json — 편집지시서·SLIDE_TIMELINE과 값 일치 — **scripts/validate_pipeline.py 통과**(수동 대조 아님)
 - [ ] SLIDE_TIMELINE — 소스 HTML에 임베드 (A → SPACE 동기화 재생 확인 안내)
 - [ ] **scripts/check_caption_safe.py 통과** — 전 슬라이드·스테이지 자막 안전 영역(하단 21vh) 침범 0 (캡처가 자동 게이트, 육안 가정 금지)
-- [ ] **scripts/check_layout.py 통과** (Step 6.97, 캡처 전) — 잘림 0 · 겹침 0 · 과밀 0(한 프레임 도형 ≤ 8단위) · 정렬 0. 의도한 포개기는 `data-grp`, 경로 위 정거장은 선에 `data-under`, 한 줄·한 열은 `data-row`/`data-col`, 라벨 칩 가로 중심은 `data-cx`로 선언한다(육안 가정 금지)
+- [ ] (캔버스 카메라 슬라이드가 있으면) **`scripts/check_caption_safe.py <타임라인> --capture` 통과** — capture.mp4 전 프레임 하단 21% 침범 0 (capture_slides.py 가 `.slide--canvas` 감지 시 캡처 직후 자동 실행)
+- [ ] **scripts/check_layout.py 통과** (Step 6.97, 캡처 전 — capture_slides.py 가 자동 실행, 우회 `--skip-layout-check` 는 진단용) — 잘림 0 · 겹침 0 · 과밀 0(한 프레임 도형 ≤ 8단위) · 정렬 0. 의도한 포개기는 `data-grp`, 경로 위 정거장은 선에 `data-under`, 한 줄·한 열은 `data-row`/`data-col`, 라벨 칩 가로 중심은 `data-cx`로 선언한다(육안 가정 금지)
 - [ ] capture.mp4 — 헤드리스 캡처 (길이 = 타임라인 duration, 30fps, 첫 프레임 = 첫 슬라이드, 해상도 2560x1440)
 - [ ] **scripts/check_motion.py 통과** (Step 7.5, 캡처 직후) — 슬라이드별 정지 초 비율 임계 이하, 컷 경계 죽은 박자 0 (선택: `scripts/hf_audit.py` 레이아웃 겹침·잘림·명암비 감사)
 - [ ] (HF 인서트 사용 시) `style: "hyperframes"` 기재, 편당 0~2개, HF 프로젝트가 `04_영상소스/hf/<n>/`에 보존, 콜라주와 **합산** 오버레이 총량 ≤ 러닝타임 25%
