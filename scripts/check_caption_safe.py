@@ -98,14 +98,55 @@ def run(timeline_path: pathlib.Path, threshold: float, save_dir: pathlib.Path | 
     return violations
 
 
+def run_capture(video: pathlib.Path, threshold: float, fps: int = 10) -> list:
+    """캡처 결과 전 프레임 검사(2026-09-14, 캔버스 카메라용): 슬라이드 중간 1점이 아니라 capture.mp4 를 fps 로 훑어
+    하단 21% 밴드의 비흰색 픽셀 비율이 임계를 넘는 프레임을 전부 잡는다. 카메라가 움직이는 슬라이드는 중간 시점 1점으로는
+    침범을 놓칠 수 있다(캡처 후 실행: python scripts/check_caption_safe.py <타임라인.json> --capture)."""
+    import imageio_ffmpeg
+    w, h = 320, 180
+    band = int(h * (1 - CAPTION_SAFE_FRAC))
+    p = subprocess.run(
+        [imageio_ffmpeg.get_ffmpeg_exe(), "-hide_banner", "-loglevel", "error", "-i", str(video),
+         "-vf", f"fps={fps},scale={w}:{h}", "-f", "rawvideo", "-pix_fmt", "gray", "pipe:1"], capture_output=True)
+    if p.returncode != 0 or not p.stdout:
+        raise RuntimeError(f"캡처 디코드 실패: {p.stderr[-300:]}")
+    data = p.stdout; n = len(data) // (w * h); bad = []
+    for i in range(n):
+        fr = data[i * w * h:(i + 1) * w * h]
+        seg = fr[band * w:]
+        dark = sum(1 for b in seg if b < WHITE_MIN)
+        frac = dark / len(seg) * 100
+        if frac > threshold:
+            bad.append((i / fps, frac))
+    print(f"[capture] {video.name}: {n}프레임 @{fps}fps 검사, 침범 {len(bad)}프레임")
+    return bad
+
+
 def main() -> None:
     ap = argparse.ArgumentParser(description="자막 안전 영역(하단 21vh) 침범 검사")
     ap.add_argument("timeline", type=pathlib.Path)
+    ap.add_argument("--capture", action="store_true",
+                    help="캡처 결과(04_영상소스/capture.mp4) 전 프레임 검사 — 캔버스 카메라 슬라이드가 있으면 캡처 후 필수")
     ap.add_argument("--threshold", type=float, default=DEFAULT_THRESHOLD,
                     help=f"침범 판정 픽셀 비율 %% (기본 {DEFAULT_THRESHOLD})")
     ap.add_argument("--save-dir", type=pathlib.Path, default=None,
                     help="침범 밴드 PNG 저장 폴더(육안 확인용)")
     args = ap.parse_args()
+    if args.capture:
+        base = args.timeline.resolve().parent
+        cap = base / "04_영상소스" / "capture.mp4"
+        if not cap.exists():
+            cap = base / "capture.mp4"
+        if not cap.exists():
+            print("[오류] capture.mp4 없음 — capture_slides.py 로 먼저 캡처"); sys.exit(2)
+        bad = run_capture(cap, args.threshold)
+        if bad:
+            print(f"\n[FAIL] 캡처 전 프레임 자막 안전 영역 침범 {len(bad)}프레임 (처음 12개):")
+            for t, frac in bad[:12]:
+                print(f"  ✗ t={t:.1f}s ({frac:.3f}%)")
+            sys.exit(2)
+        print("\n[통과] 캡처 전 프레임 자막 안전 영역 침범 없음")
+        return
     violations = run(args.timeline, args.threshold, args.save_dir)
     if violations:
         print(f"\n[FAIL] 자막 안전 영역 침범 {len(violations)}건 — 슬라이드 축소/재배치 후 재검사:")

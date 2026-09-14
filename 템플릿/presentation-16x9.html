@@ -31,6 +31,8 @@
   [v2 신설 preset]  .el--w-anchor/.el--w-norm/.el--w-light (weighted stagger)
                     .nudge (넛지 커브)  ·  .slide--cut (컷 더 커브 전환, 옵트인)
   [v2 수정]         .pulse 유한 반복(3회)  ·  캡처 모드 preroll(첫 슬라이드 등장 소진 방지)
+  [v2.2 신설]       캔버스 카메라(옵트인 .slide--canvas + window.__cam, 2026-09-14) — 카메라 scale ≤ 1 · 요소별 첫 트윈만 immediateRender
+                    · 1.3배 .zoomwrap · 대상은 .tgt 사각형 · 이동 이유 3종(새 초점·상태 강조·관계 재정리) · 이동 중 리빌 금지
 -->
 <html lang="ko" data-theme="light">
 <head>
@@ -379,6 +381,20 @@
     #sync-cover h3 { font-size: var(--text-xl); font-weight: 800; letter-spacing: -0.01em; }
     #sync-cover p { font-size: var(--text-sm); color: var(--text-secondary); line-height: 1.8; text-align: center; }
 
+    /* ---------- 캔버스 카메라 (canvas camera) — 옵트인 .slide--canvas (2026-09-14 정식 편입, 오너 판정 V2 채택) ----------
+       화면보다 큰 .canvas 위에 요소를 절대 좌표로 놓고, 로컬 GSAP 타임라인이 .canvas 의 x·y·scale 만 트윈한다(= 카메라).
+       규칙: ① 카메라 scale ≤ 1 (클로즈업 = 1배, 전체 보기 = 축소) — 텍스트 래스터 흐림 방지
+             ② 클로즈업이 현행 고정 화면보다 커야 의미가 있으므로, 1920x850 기준으로 그린 장면을 .zoomwrap(transform: scale(1.3))
+                에 넣어 캔버스를 1.3배로 키운다 → 클로즈업 1.3배, 넓은 샷 ≈ 현행 크기 (풀링013 1분 비교 실측)
+             ③ 카메라 대상은 캔버스 좌표계의 .tgt 사각형(offset 기반 — transform 을 무시하므로 zoomwrap 안 요소를 직접 대상으로 쓰지 않는다)
+             ④ 이동 이유 3종(새 초점·상태 강조·관계 재정리) 외 이동 금지, 이동 0.7~1.4s power2.inOut, 이동 중 리빌 금지(도착 후)
+             ⑤ .canvas / 캔버스 안 요소에 .el / .el--w-* / .nudge 를 같이 쓰지 않는다(이중 구동 금지) — 리빌은 전부 GSAP fromTo */
+    .slide--canvas { padding: 0; display: block; }
+    .slide--canvas .cam { position: absolute; inset: 0; overflow: hidden; background: var(--bg-page); }
+    .slide--canvas .canvas { position: absolute; left: 0; top: 0; transform-origin: 0 0; }
+    .slide--canvas .zoomwrap { position: absolute; left: 0; top: 0; transform: scale(1.3); transform-origin: 0 0; }
+    .slide--canvas .tgt { position: absolute; pointer-events: none; }
+
     @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; } }
   </style>
 
@@ -460,6 +476,88 @@
       .fromTo(".s07 .card-1", { opacity: 0, y: 48 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 2.0)
       .fromTo(".s07 .card-2", { opacity: 0, y: 48 }, { opacity: 1, y: 0, duration: 0.5, ease: "power3.out" }, 4.5);
   -->
+  <!-- ============ 캔버스 카메라 헬퍼 (window.__cam) — 옵트인, 2026-09-14 정식 편입 ============
+       슬라이드 로컬 GSAP 타임라인 안에서만 쓴다. 전부 fromTo(요소별 첫 트윈만 immediateRender). 좌표 = 캔버스 px.
+       자막 안전영역(하단 230px)을 뺀 영역 가운데에 대상을 잡는다. 카메라 scale ≤ 1.
+         __cam.shot(tl, canvasSel, [".tgA", ...], at, {dur, pad, ease})   대상(들)의 합집합을 잡는다(팬/줌). dur:0 = 시작 샷
+         __cam.fit(tl, canvasSel, at, {targets: [...], dur, pad})         지정한 대상 전부를 잡는다(넓은 샷). targets 필수
+         __cam.ghost(tl, sel, at, {dur, y, blur})                         틀 예고: 유령(옅음) → 실체
+         __cam.swap(tl, outSel, inSel, at, {dur})                         제자리 상태 교체(교차)
+         __cam.draw(tl, sel, at, {dur, ease})                             선 그어짐(GSAP판, data-head 로 화살촉 분리 가능)
+         __cam.fade(tl, sel, at, {dur, scale})                            단순 등장
+       실전 예 = 결과물/2026-09-14_풀링013_1분비교_현행vs캔버스카메라/V2_캔버스카메라/04_영상소스/presentation.html -->
+  <script>
+    window.__cam = (function () {
+      const VW = 1920, VH = 1080, SAFE = 230;
+      const state = new Map();
+      const seen = new Set();
+      function ft(tl, target, from, to, at) {
+        const els = typeof target === 'string' ? Array.from(document.querySelectorAll(target)) : [].concat(target);
+        if (!els.length) throw new Error('__cam: 대상 없음 ' + target);
+        let last = null;
+        els.forEach(e => { const first = !seen.has(e); seen.add(e); last = tl.fromTo(e, from, Object.assign({}, to, { immediateRender: first }), at); });
+        return last;
+      }
+      function num(v, name) { if (typeof v !== 'number' || !isFinite(v) || v < 0) throw new Error('__cam: ' + name + ' 는 0 이상의 유한수여야 함: ' + v); return v; }
+      function relRect(el, root) { let x = 0, y = 0, n = el; while (n && n !== root) { x += n.offsetLeft; y += n.offsetTop; n = n.offsetParent; } return { l: x, t: y, w: el.offsetWidth, h: el.offsetHeight }; }
+      function union(root, sels) {
+        let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity, n = 0;
+        [].concat(sels).forEach(s => root.querySelectorAll(s).forEach(el => { const q = relRect(el, root); n++; l = Math.min(l, q.l); t = Math.min(t, q.t); r = Math.max(r, q.l + q.w); b = Math.max(b, q.t + q.h); }));
+        if (!n) throw new Error('__cam: 대상 없음 ' + JSON.stringify(sels));
+        return { l, t, w: r - l, h: b - t };
+      }
+      function view(rect, o) {
+        const zoom = Math.min(num(o.zoom == null ? 1 : o.zoom, 'zoom'), 1);
+        const pad = num(o.pad == null ? 90 : o.pad, 'pad');
+        if (!(rect.w > 0 && rect.h > 0)) throw new Error('__cam: 대상 크기 0');
+        const availH = o.safe === false ? VH : VH - SAFE;
+        const s = Math.min(zoom, (VW - 2 * pad) / rect.w, (availH - 2 * pad) / rect.h);
+        const cx = rect.l + rect.w / 2, cy = rect.t + rect.h / 2;
+        return { x: Math.round(VW / 2 - s * cx), y: Math.round(availH / 2 - s * cy), scale: +s.toFixed(4) };
+      }
+      function moveTo(tl, canvasSel, to, at, o) {
+        const from = state.get(canvasSel);
+        const dur = (!from || o.dur === 0) ? 0.001 : (o.dur == null ? 1.0 : o.dur);
+        const f = from || to;
+        ft(tl, canvasSel, { x: f.x, y: f.y, scale: f.scale, transformOrigin: '0 0' },
+          { x: to.x, y: to.y, scale: to.scale, transformOrigin: '0 0', duration: dur, ease: o.ease || 'power2.inOut' }, at);
+        state.set(canvasSel, to);
+        return to;
+      }
+      return {
+        VW, VH, SAFE,
+        shot(tl, canvasSel, targets, at, o) { o = o || {}; const root = document.querySelector(canvasSel); return moveTo(tl, canvasSel, view(union(root, targets), o), at, o); },
+        fit(tl, canvasSel, at, o) { o = o || {}; if (!o.targets) throw new Error('__cam.fit: targets 를 명시해야 한다(암묵 전체 대상 금지)'); const root = document.querySelector(canvasSel); return moveTo(tl, canvasSel, view(union(root, o.targets), o), at, o); },
+        ghost(tl, sel, at, o) {
+          o = o || {}; const dur = o.dur == null ? 0.5 : o.dur, y = o.y == null ? 10 : o.y, blur = o.blur == null ? 4 : o.blur;
+          ft(tl, sel, { opacity: 0, y: y, filter: 'blur(' + blur + 'px)' }, { opacity: 0.38, y: 0, filter: 'blur(1.5px)', duration: dur * 0.4, ease: 'power2.out' }, at);
+          ft(tl, sel, { opacity: 0.38, filter: 'blur(1.5px)' }, { opacity: 1, filter: 'blur(0px)', duration: dur * 0.6, ease: 'power2.out' }, at + dur * 0.45);
+          return tl;
+        },
+        draw(tl, sel, at, o) {
+          o = o || {};
+          document.querySelectorAll(sel).forEach(p => {
+            if (p.classList.contains('dotted')) { ft(tl, p, { opacity: 0 }, { opacity: 1, duration: o.dur == null ? 0.5 : o.dur, ease: 'power2.out' }, at); return; }
+            const L = Math.ceil(p.getTotalLength ? p.getTotalLength() : 1000); const d = o.dur == null ? 0.6 : o.dur;
+            p.style.strokeDasharray = L + ' ' + L;
+            ft(tl, p, { opacity: 0 }, { opacity: 1, duration: 0.04 }, at);
+            ft(tl, p, { strokeDashoffset: L }, { strokeDashoffset: 0, duration: d, ease: o.ease || 'power2.inOut' }, at);
+            const head = p.dataset.head ? document.querySelector(p.dataset.head) : null;
+            if (head) ft(tl, head, { opacity: 0, scale: 0.6, transformOrigin: '0% 50%' }, { opacity: 1, scale: 1, transformOrigin: '0% 50%', duration: 0.2, ease: 'power2.out' }, at + d * 0.8);
+          });
+          return tl;
+        },
+        fade(tl, sel, at, o) { o = o || {}; ft(tl, sel, { opacity: 0, scale: o.scale == null ? 0.96 : o.scale, transformOrigin: '50% 50%' }, { opacity: 1, scale: 1, transformOrigin: '50% 50%', duration: o.dur == null ? 0.35 : o.dur, ease: 'power2.out' }, at); return tl; },
+        swap(tl, outSel, inSel, at, o) {
+          o = o || {}; const dur = o.dur == null ? 0.4 : o.dur;
+          ft(tl, outSel, { opacity: 1 }, { opacity: 0, duration: dur, ease: 'power2.inOut' }, at);
+          ft(tl, inSel, { opacity: 0, scale: 0.94, transformOrigin: '50% 50%' }, { opacity: 1, scale: 1, transformOrigin: '50% 50%', duration: dur, ease: 'power2.out' }, at + dur * 0.35);
+          return tl;
+        },
+        ft,
+      };
+    })();
+  </script>
   <script>
     if (window.gsap) {
       /* 여기에 슬라이드별 타임라인을 등록한다 */

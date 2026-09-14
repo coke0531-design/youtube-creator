@@ -114,13 +114,17 @@ ASS_BOX_RIM_W = 2       # 테두리 두께(px)
 ASS_BOX_SHADOW_OFF = 10  # 하드 섀도 대각 오프셋(px, 레퍼런스 실측 7px@720p 환산)
 # kind별 규격:
 #  - playres            : ASS PlayRes = 렌더 정규화 해상도(본편 1920x1080 / 쇼츠 1080x1920).
-#  - fontsize           : 본편 52px(레퍼런스 실측 환산). 쇼츠는 폰 시청 거리 보정으로 기존 60px 유지.
+#  - fontsize           : 본편 60px(2026-09-14 오너 채택 V4 — 이전 52px 레퍼런스 환산에서 확대). 쇼츠는 폰 시청 거리 보정으로 기존 60px 유지.
 #  - margin_lr          : 좌우 여백(줄바꿈 한계). 본편 160px 유지 / 쇼츠 48px.
-#  - center_from_bottom : 자막 '중심'의 하단거리. 본편 86px(레퍼런스 실측 8%H) / 쇼츠 384px(세로-레이아웃.md).
+#  - center_from_bottom : 자막 '중심'의 하단거리. 본편 145px(2026-09-14 V4: 텍스트 하단 여백 54→108px, 이전 86px) / 쇼츠 384px(세로-레이아웃.md).
 ASS_SPEC = {
-    "main":  {"playres": (1920, 1080), "fontsize": 52, "margin_lr": 160, "center_from_bottom": 86},
+    "main":  {"playres": (1920, 1080), "fontsize": 60, "margin_lr": 160, "center_from_bottom": 145},
     "short": {"playres": (1080, 1920), "fontsize": 60, "margin_lr": 48,  "center_from_bottom": 384},
 }
+
+
+# 실행 시 덮어쓰기(--caption-fontsize / --caption-bottom). 기본 규격은 그대로 두고 비교용 변주만 허용한다(2026-09-14 V4 비교).
+CAPTION_OVERRIDE = {"fontsize": None, "bottom": None}   # bottom = 텍스트 하단↔화면 하단 거리(px) = ASS MarginV 직접 지정
 
 
 def _ass_params(kind: str):
@@ -129,9 +133,11 @@ def _ass_params(kind: str):
     ASS Alignment=2(하단 정렬)의 MarginV는 '텍스트 하단↔화면 하단' 거리다. FinalVideo/CapCut은 자막
     '중심'을 center_from_bottom에 놓으므로, 중심을 맞추려면 절반 줄높이만큼 내려 준다(162-37=125 / 384-37=347)."""
     spec = ASS_SPEC[kind]
-    fontsize = spec["fontsize"]
+    fontsize = CAPTION_OVERRIDE["fontsize"] or spec["fontsize"]
     line_h = round(fontsize * 1.25)              # FinalVideo lineHeight:1.25 → 75px
     margin_v = spec["center_from_bottom"] - line_h // 2
+    if CAPTION_OVERRIDE["bottom"] is not None:
+        margin_v = CAPTION_OVERRIDE["bottom"]
     return spec["playres"], ASS_FONT, fontsize, spec["margin_lr"], margin_v
 
 
@@ -383,8 +389,22 @@ def _short_audio_cuts(audio_cuts: list, audio_dur_s: float) -> list:
     return cuts
 
 
+CUT_FADE_SEC = 0.03   # 컷 경계 페이드(초) — 단어 경계 컷은 무음이 아니라 하드 컷이면 팝이 난다 (2026-09-03)
+
+
+def _cut_fade_chain(d: float, fade: float = CUT_FADE_SEC) -> str:
+    """컷 하나(길이 d초)의 양끝 페이드 필터. 길이는 불변(afade는 샘플을 잘라내지 않는다).
+
+    컷이 아주 짧으면 페이드가 서로 겹치지 않게 절반씩으로 줄인다. 페이드 구간이 0이면 anull.
+    쇼츠 audio_cuts는 무음 안이 아니라 단어 경계에서 자르므로(트림 컷과 다름) 경계 팝 방지가 필요하다."""
+    f = min(fade, d / 2)
+    if f <= 0:
+        return "anull"
+    return f"afade=t=in:st=0:d={f:.3f},afade=t=out:st={max(d - f, 0):.3f}:d={f:.3f}"
+
+
 def _build_short_filter(cuts: list, audio_idx: int, playres: tuple, audio_chain: str = None) -> str:
-    """쇼츠 filter_complex: 비디오 정규화+자막 굽기 + audio_cuts atrim/concat.
+    """쇼츠 filter_complex: 비디오 정규화+자막 굽기 + audio_cuts atrim/concat (컷마다 양끝 30ms 페이드).
 
     오디오는 나레이션(입력 audio_idx)에서 각 컷 [src, src+dur]을 atrim으로 뽑아 asetpts로 t=0 리셋하고
     dst 순서대로 concat 한다 → 결과 오디오 길이 = 컷 길이 합(assemble_capcut.py와 동일 결과).
@@ -395,7 +415,8 @@ def _build_short_filter(cuts: list, audio_idx: int, playres: tuple, audio_chain:
     for i, (_dst, src, d) in enumerate(cuts):
         lbl = f"a{i}"
         a_parts.append(
-            f"[{audio_idx}:a]atrim=start={src:.3f}:end={src + d:.3f},asetpts=PTS-STARTPTS[{lbl}]")
+            f"[{audio_idx}:a]atrim=start={src:.3f}:end={src + d:.3f},asetpts=PTS-STARTPTS,"
+            f"{_cut_fade_chain(d)}[{lbl}]")
         labels.append(f"[{lbl}]")
     a_parts.append("".join(labels) + f"concat=n={len(cuts)}:v=0:a=1[acat]")
     a_parts.append(f"[acat]{audio_chain}[aout]" if audio_chain else "[acat]anull[aout]")
@@ -622,9 +643,15 @@ def main() -> None:
     ap.add_argument("--out", help="ffmpeg 엔진 출력 파일명/경로 (기본 완성본/final.mp4 — 비교 시 이름 분리용)")
     ap.add_argument("--dry-run", action="store_true",
                     help="ffmpeg 엔진: 검증·ASS 생성·명령 구성까지만 (인코딩 미실행)")
+    ap.add_argument("--caption-fontsize", type=int, default=None,
+                    help="자막 글자 크기 덮어쓰기(px, PlayRes 기준 — 본편 기본 60). 비교 변주용, 기본 규격은 바꾸지 않는다")
+    ap.add_argument("--caption-bottom", type=int, default=None,
+                    help="자막 텍스트 하단↔화면 하단 거리 덮어쓰기(px = ASS MarginV — 본편 기본 108). 비교 변주용")
     ap.add_argument("--no-limiter", action="store_true",
                     help="오디오 라우드니스 정규화(-14 LUFS/-1 dBTP loudnorm) 끄기 (기본 ON — 녹음 게인 과대·과소 모두 흡수)")
     args = ap.parse_args()
+    CAPTION_OVERRIDE["fontsize"] = args.caption_fontsize
+    CAPTION_OVERRIDE["bottom"] = args.caption_bottom
 
     base = args.job.resolve()
     if not base.is_dir():

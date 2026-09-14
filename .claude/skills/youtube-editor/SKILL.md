@@ -96,6 +96,9 @@ description: YouTube 본편(16:9) 영상 소스 제작 스킬. 대본+나레이�
 6.95 레이아웃 검증 scripts/check_caption_safe.py — 슬라이드·스테이지 전수를 헤드리스 렌더해
                  자막 안전 영역(하단 21vh) 침범을 픽셀로 검사 (capture_slides.py가 본편 캡처 전
                  자동 실행 — 침범이면 중단. 템플릿 패딩은 콘텐츠가 가용 높이를 넘으면 뚫린다)
+6.97 레이아웃 게이트 scripts/check_layout.py — presentation.html 을 시간축으로 훑어 DOM 실측으로
+                 잘림(프레임 가장자리 걸침)·겹침(도형 교차·선 관통)·과밀(한 프레임 도형 >8단위)·정렬(라벨·같은 줄)
+                 4종을 판정. 캡처 전에 통과해야 한다(2026-09-14 오너 지적 3건의 재발 방지 — 임계 완화 금지)
 7. 캡처          scripts/capture_slides.py — 헤드리스 프레임 캡처 → 04_영상소스/capture.mp4 (30fps·1440p)
 7.5 모션 게이트   scripts/check_motion.py — capture.mp4 프레임 차분으로 "80~90% 정지 화면" 회귀 차단
                  (선택: scripts/hf_audit.py — 레이아웃 겹침·잘림·명암비 DOM 감사)
@@ -154,6 +157,8 @@ curl https://api.openai.com/v1/audio/transcriptions \
 ```
 
 `transcript.json`(단어 타임스탬프 원본)은 쇼츠 컷 계산에도 재사용하므로 반드시 보존한다.
+
+- **전사 직후 읽기 뷰 생성**: `python scripts/pack_transcript.py "결과물/<작업>"` → `03_자막/transcript_packed.md`(구 단위, 무음 갭 ≥0.4s는 `✂` 컷 후보 표시, 파일 경계 표시). 이후 단계(스토리보드 Scene 큐·쇼츠 컷 선정)에서 발화 흐름·갭을 볼 때는 transcript.json 원문 대신 이 파일을 먼저 읽는다 — 시각 실측은 여전히 transcript.json 단어 타임스탬프가 정본이다.
 
 - **API 실패 시 로컬 폴백**: `billing_not_active` 등으로 API를 못 쓰면 로컬 `openai-whisper`(pip, small 모델)로 전사한다. ffmpeg은 `imageio_ffmpeg.get_ffmpeg_exe()`를 `ffmpeg.exe`로 복사해 PATH에 넣으면 된다. 타임코드는 실측이므로 싱크 품질은 동일하고, 텍스트 오인식은 Step 3에서 대본 대조로 보정된다.
 - **녹음이 여러 파일이면**: 트림본별로 전사한 뒤 누적 오프셋(앞 트림본들의 디코드 길이 합)을 더해 단일 타임베이스로 병합한다. transcript.json에 `files`(오프셋 목록)를 기록하고, ffmpeg concat(코덱 복사)으로 **트림본들의** `02_음성/narration.m4a` 단일 파일도 만들어 둔다 (Step 8 조립 입력). 파일별 전사 유지 = whisper API 25MB 제한 회피(트림으로 파일이 더 작아진다).
@@ -254,6 +259,7 @@ python scripts/check_storyboard.py "결과물/<작업>/04_영상소스/STORYBOAR
 
 - **6프레임 이하는 분업하지 않는다** — 인라인 제작이 더 빠르다. 7프레임 이상이면 **워커 1명 = 2~3프레임**으로 병렬 디스패치한다.
 - **프레임 패킷**(48KB 상한) = ① 해당 `## Frame NN` 블록 전문 ② `blueprint`가 가리키는 부품 본문 ③ 걸리는 rule 본문(교리 4법칙 해당 조항·쓰는 preset의 렉시콘 행·4색·한글·자막 안전영역 21vh)을 **인라인으로**. 링크만 주지 않는다.
+- **캔버스 카메라 프레임(`route: camera-with-intent`)의 패킷**에는 감독이 **레이아웃 좌표(1920×850 기준)와 카메라 계획(`.tgt` 사각형·shot/fit 시각·이동 이유)**을 지급한다. 워커는 `shot/fit` 값을 바꾸지 않고, 요소 리빌만 만든다(2026-09-14).
 - 🔴 **워커는 STORYBOARD 전체를 열지 않는다** — 패킷이 전부다(전체를 읽히면 워커가 편 전체 판단을 시작해 후반부 품질이 떨어진다).
 - **워커 출력 계약** = `<section class="slide">` 조각 1개 + 그 슬라이드의 로컬 GSAP 타임라인 1개. 전역 CSS·SLIDE_TIMELINE·캡처 블록·타임라인.json은 **감독만** 건드린다.
 - **감독 조립**: 조각을 순서대로 합치고 → 프레임 간 **벡터 연속성**(연속 역방향 금지, design.md §4 벡터 예약표)을 검수하고 → 게이트로 넘긴다. 워커는 옆 프레임을 모르므로 벡터 연속성은 감독 전담.
@@ -389,6 +395,7 @@ python scripts/hf_audit.py "결과물/<작업>/04_영상소스/presentation.html
 
 - `check_motion.py`: capture.mp4 프레임 차분을 **1초 격자**로 측정해 슬라이드별 정지 초 비율이 임계를 넘으면 경고/실패. 컷 경계 전후 4프레임의 변위 부호로 **죽은 박자**(감속해 멈춘 뒤 넘기는 전환)를 근사 판정한다.
 - `hf_audit.py`(선택): HF `check`의 브라우저 스크립트(layout/contrast/motion)를 `presentation.html`에 주입해 **레이아웃 겹침·잘림·명암비**를 전수 검사한다(한글 라벨 상수는 8자로 재보정된 값 사용).
+- `timeline_view.py`(선택, WARN 원인 분류용): `python scripts/timeline_view.py "결과물/<작업>" <start> <end>` → `검증/timeline_<s>-<e>.png`(필름스트립+프레임 차분 띠+파형+단어 큐+갭 밴드+슬라이드/오버레이 경계선)과 같은 이름 `.json`(수치). WARN·죽은 박자가 뜬 슬라이드 경계 ±3s만 뜬다 — 상시 스캔 도구가 아니다. 숫자는 JSON으로 읽고 그림은 연속성 판단에만 쓴다.
 - 실패하면 **스토리보드로 돌아간다** — 슬라이드 코드에 모션을 덧칠하지 말고, 해당 프레임의 `route`·Scene 창을 고쳐 Step 4.5부터 다시 태운다.
 
 ### Step 8: CapCut 드래프트 자동 조립
@@ -575,6 +582,7 @@ python scripts/analyze_motion.py "레퍼런스.mp4" --scene 0.2   # 컷이 덜 �
 - [ ] 타임라인.json — 편집지시서·SLIDE_TIMELINE과 값 일치 — **scripts/validate_pipeline.py 통과**(수동 대조 아님)
 - [ ] SLIDE_TIMELINE — 소스 HTML에 임베드 (A → SPACE 동기화 재생 확인 안내)
 - [ ] **scripts/check_caption_safe.py 통과** — 전 슬라이드·스테이지 자막 안전 영역(하단 21vh) 침범 0 (캡처가 자동 게이트, 육안 가정 금지)
+- [ ] **scripts/check_layout.py 통과** (Step 6.97, 캡처 전) — 잘림 0 · 겹침 0 · 과밀 0(한 프레임 도형 ≤ 8단위) · 정렬 0. 의도한 포개기는 `data-grp`, 경로 위 정거장은 선에 `data-under`, 한 줄·한 열은 `data-row`/`data-col`, 라벨 칩 가로 중심은 `data-cx`로 선언한다(육안 가정 금지)
 - [ ] capture.mp4 — 헤드리스 캡처 (길이 = 타임라인 duration, 30fps, 첫 프레임 = 첫 슬라이드, 해상도 2560x1440)
 - [ ] **scripts/check_motion.py 통과** (Step 7.5, 캡처 직후) — 슬라이드별 정지 초 비율 임계 이하, 컷 경계 죽은 박자 0 (선택: `scripts/hf_audit.py` 레이아웃 겹침·잘림·명암비 감사)
 - [ ] (HF 인서트 사용 시) `style: "hyperframes"` 기재, 편당 0~2개, HF 프로젝트가 `04_영상소스/hf/<n>/`에 보존, 콜라주와 **합산** 오버레이 총량 ≤ 러닝타임 25%

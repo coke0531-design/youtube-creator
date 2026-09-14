@@ -50,6 +50,8 @@ TRANSITION_BUDGET = 4  # 이 수 이상이면 경고
 
 # Scene 텍스트가 "리빌"이 아니라 홀드/정지 구간임을 알리는 표식
 HOLD_MARKERS = ("정지 홀드", "홀드", "정지 쉼표", "쉼표", "hold", "pause", "정지 유지")
+# 카메라 이동 표식(2026-09-14) — 리빌과 별도 집합: 카메라만 있는 Scene은 리빌로 세지 않는다
+CAMERA_HINT = ("카메라", "팬(", "팬하", "푸시 인", "줌", "잡음", "잡고", "fit", "넓게", "shot")
 REVEAL_HINT = ("등장", "리빌", "reveal", "드로우온", "draw-on", "나타", "스윕",
                "카운트", "하이라이트", "펼침", "출현", "표시", "진입", "점화")
 
@@ -212,7 +214,10 @@ def check(frames, words, rep: Report):
         fid = f"Frame {f['no']:02d}"
         fields = f["fields"]
 
-        # A. route
+        # A. route (+ camera-with-intent 는 카메라 Scene 이 1개 이상이어야 한다 — 2026-09-14)
+        _route = (fields.get('route') or '').strip()
+        if _route == 'camera-with-intent' and not any(any(c in sc['text'].lower() for c in CAMERA_HINT) for sc in f.get('scenes', [])):
+            rep.add('WARN', 'A', fid, 'route=camera-with-intent 인데 카메라 이동 Scene 이 없다(카메라 표기: 팬/푸시 인/fit + 이유 3종)')
         route = fields.get("route", "").split()[0] if fields.get("route") else ""
         if route not in ROUTES:
             rep.add("FAIL", "A", fid,

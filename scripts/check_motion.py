@@ -351,6 +351,10 @@ def main():
                   + ", ".join(f"{b['id']}@{b['t']:.1f}s" for b in half[:12])
                   + (" …" if len(half) > 12 else ""))
 
+        print("참고: 픽셀 평균 차분은 흰 배경 위 작은 요소의 등장에 둔감하다 — 캔버스 카메라·라벨 위주 슬라이드의 정지 비율은 "
+              "'검출 누락 + 실제 홀드'가 섞인 값이며, 큐별 실제 리빌은 STORYBOARD Scene 줄과 timeline_view.py 로 확인한다(2026-09-14). "
+              "임계를 낮추거나 장식을 키워 통과시키지 않는다(design.md §4).")
+
     if (fails or nomeas) and not args.warn_only:
         return 1
     return 0
