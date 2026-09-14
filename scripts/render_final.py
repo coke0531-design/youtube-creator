@@ -131,7 +131,7 @@ def _ass_params(kind: str):
     """kind별 ASS 규격 → (playres, fontname, fontsize, margin_lr, margin_v). MarginV 산식은 본편과 동일.
 
     ASS Alignment=2(하단 정렬)의 MarginV는 '텍스트 하단↔화면 하단' 거리다. FinalVideo/CapCut은 자막
-    '중심'을 center_from_bottom에 놓으므로, 중심을 맞추려면 절반 줄높이만큼 내려 준다(162-37=125 / 384-37=347)."""
+    '중심'을 center_from_bottom에 놓으므로, 중심을 맞추려면 절반 줄높이만큼 내려 준다(본편 145-37=108 / 쇼츠 384-37=347)."""
     spec = ASS_SPEC[kind]
     fontsize = spec["fontsize"] if CAPTION_OVERRIDE["fontsize"] is None else CAPTION_OVERRIDE["fontsize"]
     line_h = round(fontsize * 1.25)              # FinalVideo lineHeight:1.25 → 75px

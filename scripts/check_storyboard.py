@@ -198,9 +198,9 @@ def is_reveal(text: str) -> bool:
     low = text.lower()
     if any(h in low for h in HOLD_MARKERS) and not any(r in low for r in REVEAL_HINT):
         return False
-    # 카메라 이동만 있고 리빌 표식이 없는 Scene(팬/fit 만) 은 리빌로 세지 않는다 — 스토리보드-규격 카메라 표기(2026-09-14)
-    if any(c in low for c in CAMERA_HINT) and not any(r in low for r in REVEAL_HINT):
-        return False
+    # (보류) "카메라 이동만 있는 Scene 은 리빌이 아니다" 규칙은 부분 문자열 매칭으로는 "(카메라 고정)" 리빌까지
+    # 걸러 거짓 FAIL 을 낸다(2026-09-14 리뷰 실측: 저장소 스토리보드 4벌에서 12건 뒤집힘) — 카메라 표기 문법을
+    # 구조화(예: 「카메라:」 접두)한 뒤 다시 넣는다. 지금은 HOLD 표식만으로 판정한다.
     return True
 
 

@@ -564,7 +564,7 @@
     document.fonts.ready.then(() => {
       document.querySelectorAll('[data-cx]').forEach(e => {
         const cx = parseFloat(e.dataset.cx);
-        if (!isFinite(cx)) throw new Error('data-cx 는 유한수여야 함: ' + e.dataset.cx);
+        if (!isFinite(cx)) { console.error('data-cx 는 유한수여야 함: ' + e.dataset.cx, e); return; }
         e.style.left = (cx - e.offsetWidth / 2) + 'px';
       });
     });

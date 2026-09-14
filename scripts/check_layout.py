@@ -273,6 +273,7 @@ def main():
     ap.add_argument("--json", type=pathlib.Path)
     ap.add_argument("--warn-only", action="store_true")
     a = ap.parse_args()
+    if a.times is not None and len(a.times) == 0: ap.error("--times 에 시각을 1개 이상 주거나 옵션을 빼라(전체 격자)")
     if a.times is None and not (a.step > 0): ap.error(f"--step 은 양수여야 한다: {a.step}")
     found, counts, maxu, times, skipped = run(a.html, a.timeline, a.step, a.max_units, a.tol, a.tol_label,
                                               skip_overlay=not a.no_skip_overlay, times=a.times)

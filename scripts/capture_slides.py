@@ -341,7 +341,8 @@ def main() -> None:
         print(f"[2/2] 완료: {out} ({duration:.1f}s, {args.fps}fps, {width}x{height})")
         # 캔버스 카메라 슬라이드(.slide--canvas)는 padding 기반 자막 안전영역 방어가 없고 카메라가 움직이므로,
         # 구간 중간 1점 검사로는 부족하다 → 캡처 결과 전 프레임을 다시 검사한다(2026-09-14, C2).
-        if kind == "main" and not args.skip_caption_check and "slide--canvas" in args.html.read_text(encoding="utf-8", errors="ignore"):
+        has_canvas = re.search(r'<section[^>]*class="[^"]*slide--canvas', args.html.read_text(encoding="utf-8", errors="ignore"))
+        if kind == "main" and not args.skip_caption_check and has_canvas:
             import check_caption_safe
             print("[게이트] 캔버스 카메라 감지 — 캡처 전 프레임 자막 안전 영역 검사 (check_caption_safe --capture) …")
             bad = check_caption_safe.run_capture(out, check_caption_safe.DEFAULT_THRESHOLD)
