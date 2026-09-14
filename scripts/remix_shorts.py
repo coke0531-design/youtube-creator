@@ -298,6 +298,17 @@ def load_plan(plan_path: pathlib.Path, no_subs: bool, allow_length: bool) -> dic
 
 
 # ── 2) 컷 + 콘캣 ────────────────────────────────────────────────────────────
+CUT_FADE_SEC = 0.03   # 컷 경계 오디오 페이드(초) — 대사 경계 하드 컷의 팝 방지 (2026-09-03, render_final.py와 동일)
+
+
+def _cut_fade_chain(d: float, fade: float = CUT_FADE_SEC) -> str:
+    """컷 하나(길이 d초)의 양끝 afade 체인. 길이 불변. 짧은 컷은 절반씩으로 줄이고 0이면 anull."""
+    f = min(fade, d / 2)
+    if f <= 0:
+        return "anull"
+    return f"afade=t=in:st=0:d={f:.3f},afade=t=out:st={max(d - f, 0):.3f}:d={f:.3f}"
+
+
 def _enc_v(nvenc: bool) -> list:
     """중간 산출물 인코딩 옵션 — 재인코딩 손실을 줄이려 최종보다 높은 품질로 굽는다."""
     if nvenc:
@@ -322,6 +333,11 @@ def cut_and_concat(ff: str, plan: dict, tmp: pathlib.Path, nvenc: bool) -> pathl
             cmd += ["-f", "lavfi", "-i", "anullsrc=r=48000:cl=stereo"]
         cmd += ["-ss", f"{a:.3f}", "-to", f"{b:.3f}"]
         cmd += ["-map", "0:v:0", "-map", ("0:a:0" if has_audio else "1:a:0")]
+        if has_audio:
+            # 출력 시킹(-ss/-to가 -i 뒤)이라 필터는 원본 타임라인을 본다 → 페이드 st는 절대 시각(a, b-f)으로 지정.
+            f = min(CUT_FADE_SEC, (b - a) / 2)
+            if f > 0:
+                cmd += ["-af", f"afade=t=in:st={a:.3f}:d={f:.3f},afade=t=out:st={max(b - f, a):.3f}:d={f:.3f}"]
         cmd += _enc_v(nvenc)
         cmd += ["-r", str(FPS), "-pix_fmt", "yuv420p",
                 "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-ac", "2"]
@@ -353,7 +369,7 @@ def cut_audio_only(ff: str, plan: dict, tmp: pathlib.Path) -> pathlib.Path:
         die(f"오디오 소스에 오디오 스트림이 없습니다: {asrc}")
     parts, labels = [], []
     for i, (a, b) in enumerate(cuts):
-        parts.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS[a{i}]")
+        parts.append(f"[0:a]atrim=start={a:.3f}:end={b:.3f},asetpts=PTS-STARTPTS,{_cut_fade_chain(b - a)}[a{i}]")
         labels.append(f"[a{i}]")
         print(f"  [오디오 컷 {i + 1}/{len(cuts)}] {a:.2f}s → {b:.2f}s ({b - a:.2f}s)")
     fg = ";".join(parts) + ";" + "".join(labels) + f"concat=n={len(cuts)}:v=0:a=1[aout]"
