@@ -14,7 +14,7 @@ youtube-creator/
 ├── 템플릿/                    # 슬라이드 보일러플레이트 (16:9 / 9:16)
 └── .claude/
     └── skills/                # 프로젝트 로컬 스킬 (이 폴더 안에서만 발동)
-        ├── youtube-editor/           # 16:9 본편 소스 (슬라이드 HTML + SRT + 드래프트 조립)
+        ├── youtube-editor/           # 16:9 본편 (v3.2: DIRECTION + 킷 + 막 필름 + 완성본)
         └── youtube-short-generator/  # 9:16 쇼츠 소스 (+ 컷지시서)
 ```
 
@@ -22,8 +22,22 @@ youtube-creator/
 
 | 스킬 | 하는 일 | 트리거 예시 |
 |------|---------|------------|
-| **youtube-editor** | 음성+대본 → 슬라이드 HTML(SLIDE_TIMELINE 동기화 내장) + Whisper 자막 SRT + 편집지시서/타임라인.json + **헤드리스 캡처(capture.mp4) + CapCut 드래프트 자동 조립**. 마무리로 대본 끝에 '영상 요약'·'썸네일 생성 프롬프트' 섹션 append | "이 오디오로 영상 소스 만들어줘" |
+| **youtube-editor** | 음성+대본 → Whisper 자막 SRT + 비트 표 + 연출 브리프(DIRECTION.md) + 공용 킷 + 막 단위 필름 HTML + 헤드리스 캡처 + **자막 번인 완성본(`완성본/final.mp4`)** — 연출 위임형 v3.2. 마무리로 대본 끝에 '영상 요약'·'썸네일 생성 프롬프트' 섹션 append | "이 오디오로 영상 만들어줘" |
 | **youtube-short-generator** | 본편 → 쇼츠 2~3개: 세로 슬라이드(동기화 내장) + 쇼츠 SRT + 컷지시서/타임라인.json + 캡처·드래프트 (마지막 2초 CTA 무음) | "쇼츠로 잘라줘" |
+
+## 본편 v3.2 — 연출 위임형 (2026-09-30 정본 편입)
+
+본편 16:9는 슬라이드를 부품 단위로 통제하지 않고, **연출 브리프 한 장(DIRECTION.md)**을 주고 **막 단위 필름 HTML**(시간의 순수 함수 `seek(t)`)을 쓰게 한다. 스타일은 P1 종이 무대(별표 8비트 캐릭터) 기본 + 카드 줌으로 들어가는 P2(화면 속 일), 실사 녹화는 카드 안 둥근 창. 공용 킷 `템플릿/film/kit.js` 한 벌이 캐릭터·팔레트의 SSOT(작업 폴더에는 복사만, 수정 금지). 캡처는 결정론 검사(`--verify-seek`)를 거치고, 막 이음매·카메라 왕복·정지 비율을 스크립트가 잰 뒤 `완성본/final.mp4`까지 만든다. 결정 기록 `docs/편입안_2026-09-30_연출위임형-v3.2.md`, 규범 `design.md` §4-A, 절차 `.claude/skills/youtube-editor/SKILL.md`.
+
+```
+python scripts/film/segment.py --src 결과물/<작업> --out 결과물/<작업> --beats-only          # 비트 표
+python scripts/film/kit_check.py 결과물/<작업>                                              # 킷 일관성
+python scripts/film/cam_check.py 결과물/<작업>/04_영상소스/film_<막>.html                    # 카메라 규칙
+python scripts/film/capture.py 결과물/<작업>/04_영상소스/film_<막>.html --out …/capture_<막>.mp4 --verify-seek 5 --workers 2
+python scripts/film/join_acts.py --acts …/capture_A1.mp4 …/capture_A2.mp4 --out …/capture.mp4 --json …/seams.json
+python scripts/film/mux.py --video …/capture.mp4 --audio 결과물/<작업>/02_음성/narration.m4a --srt 결과물/<작업>/03_자막/full.srt --out 결과물/<작업>/완성본/final.mp4
+```
+(정지 비율 게이트 `still_ratio.py --holds`와 비트 시트 `beatsheet.py`는 SKILL.md Step 6·7.)
 
 ## 표준 워크플로우
 
@@ -32,7 +46,7 @@ youtube-creator/
 ```
 
 1. 확정 대본을 `결과물/<작업>/01_대본/`에, **나레이션 녹음본**을 `02_음성/`에 넣기 (녹음이 먼저 — 슬라이드 타이밍은 실제 발화 기준)
-2. `"영상 소스 만들어줘"` → 슬라이드 HTML + full.srt + 편집지시서/타임라인.json + **capture.mp4 + CapCut 드래프트 자동 조립** + 대본 끝 '영상 요약'·'썸네일 생성 프롬프트' 섹션
+2. `"영상 만들어줘"` → full.srt + DIRECTION.md + 막 필름 + capture.mp4 + **`완성본/final.mp4`** + 대본 끝 '영상 요약'·'썸네일 생성 프롬프트' 섹션 (CapCut 드래프트는 요청 시)
 3. `"쇼츠 2~3개 뽑아줘"` → 쇼츠별 세로 소스 + SRT + 컷지시서/타임라인.json + 캡처·드래프트
 4. CapCut: 드래프트 열기 → 3트랙(나레이션/영상소스/자막) **검수·미세조정 → 내보내기** (자동 조립 실패 시 수동 폴백: `결과물/README.md`)
 5. 제목·썸네일 카피·업로드는 사용자가 직접 ('영상 요약'·'썸네일 생성 프롬프트' 섹션이 재료)

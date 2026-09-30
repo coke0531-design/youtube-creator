@@ -1,0 +1,140 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>막 필름 템플릿</title>
+<style>html,body{margin:0;background:#F7F3EA;overflow:hidden}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script src="kit.js"></script>
+<script src="live.js"></script>
+<script>
+/* film_act_template — 막 필름 뼈대 30초 샘플(정본 v3.2, 2026-09-30). 새 막은 이 파일을 04_영상소스/film_<막>.html 로 복사해 시작한다.
+ *
+ * 계약(scripts/film/capture.py): window.FILM = {duration, width:1920, height:1080, fps:30, offset, holds}
+ *   window.seek(t) = t(막 기준 초)의 순수 함수(async 허용: 실사 프레임을 전부 await 한 뒤 동기로 그린다) · window.FILM_READY = true(폰트·첫 실사 프레임 선로드 뒤)
+ *   자막은 그리지 않는다(mux.py 번인). 하단 200px(y > 880)은 무대·카드 안 모두 비운다. 난수·타이머·rAF·<video> 금지.
+ * 킷: kit.js 는 정본 템플릿/film/kit.js 복사본 — 수정 금지(영상 전용 그리기는 kit_ext.js). kit_check.py 통과 필수.
+ * 규칙 출처: 편입안 docs/편입안_2026-09-30_연출위임형-v3.2.md §3(실사)·§4(캐릭터) · 킷-규격.md · 스타일팩.md(P1+P2 혼합·카메라 규칙 4조).
+ *
+ * 흐름(막 기준 초, offset 0):
+ *   0.0~0.3   첫 프레임 = HANDOFF.THUMB(썸네일 = 첫 장면 원칙). 다음 막이면 이전 막 핸드오프 함수로 바꾼다
+ *   0.3~12.5  P1 무대: 썸네일 걷힘 → 캐릭터 걷기 → 큰 숫자(≥130) → 카메라 줌 1회(CAM_STAGE) → 흰 카드 CARD 등장
+ *  12.5~13.0  enterCard(P1→P2 줌 인 0.5초, 카메라 항등)
+ *  13.0~25.0  카드 안(cardFull): 실사 고정 창 WIN + 창 안 카메라(CAM_CARD) + 토큰 me 구석 상주 → 창 축소 + 결과 문서 + 체크 도장
+ *  25.0~25.5  leaveCard(P2→P1)
+ *  25.5~30.0  P1: 만세 → 카드 치움 → 마지막 0.5초 THUMB 값으로 수렴 → 마지막 프레임 = HANDOFF.THUMB(엔드카드 수미상관)
+ *
+ * 실사(§3): 카드 안 고정 창 WIN {x:1040,y:510,w:1316,h:740,r:32}(카드 로컬 y 140~880), 둥근 모서리 + 잉크 테두리 4px.
+ *   카메라 줌은 창을 움직이지 않고 창 안 그림에만(picDraw 클립). 대사 구간 = 실사가 보이는 구간.
+ *   rate = 클립 프레임 수 / (대사 길이 × 30), 0.6~1.5로 제한(보간 금지). 범위 밖이면 한계 속도 + 남는 시간 마지막 프레임 유지.
+ *   프레임 번호 = floor((t - t0) × 30 × rate). 이 샘플: 30장(1초분)을 3초 대사(14.0~17.0)에 → 원래 0.33 → 0.6으로 제한 → 1.67초 재생 + 1.33초 마지막 프레임 유지.
+ *   JPEG 시퀀스 = 실사프레임/<이름>/%04d.jpg(30fps, ffmpeg 1부터) · live.js(LIVE.N 에 세트 프레임 수 등록 필수).
+ * 카메라 규칙 4조(cam_check.py 가 CAM* 배열 숫자를 읽는다 — 숫자를 풀어 적고 스프레드·변수 금지):
+ *   이동 뒤 ≥ 3초 유지 · 한 이동 |Δz| ≥ 0.15 또는 팬 ≥ 288px · 6초 안 왕복 금지(되돌아오기는 6초 넘게 뒤) · 구간 ÷ 이동 ≥ 4초.
+ *   enter/leave 0.5초 동안 무대·카드 안 카메라 모두 항등.
+ */
+window.FILM = { duration: 30, width: 1920, height: 1080, fps: 30, offset: 0, holds: [
+  [17.0, 19.0, "#샘플 실사 마지막 프레임 읽기"],            // [시작, 끝, "비트 # + 이유"] — still_ratio.py --holds 가 모션 판정에서 뺀다
+] };
+const K = KIT, C = K.C, D = FILM.duration, FR = 1 / FILM.fps, TLAST = D - FR, TSWAP = TLAST - 0.3;
+const ctx = document.getElementById('c').getContext('2d');
+const E = K.easeInOut, EO = K.easeOut, pr = K.pr, lerp = K.lerp;
+const TH = K.HANDOFF_SPEC.THUMB, HUD = '샘플 막';
+
+// ---------- 카메라 [t, cx, cy, z] ----------
+// 무대(P1): 월드 (cx,cy) → 화면 (960,440). 줌 인 4.0~5.0 → 6초 넘게 유지 → 11.2~12.2 복귀(enterCard 12.5 전에 항등)
+const CAM_STAGE = [[0, 960, 440, 1], [4.0, 960, 440, 1], [5.0, 760, 420, 1.2], [11.2, 760, 420, 1.2], [12.2, 960, 440, 1]];
+// 카드 안(창 안 그림): cx,cy = 창 중심에 올 그림 좌표(항등 = 창 중심 1040,510), z = 그림 배율. 12.5~14.2 항등, 줌 인 → 22.0 전에 복귀(창 축소 22.0~ 은 항등)
+const CAM_CARD = [[13.0, 1040, 510, 1], [14.2, 1040, 510, 1], [15.0, 1090, 540, 1.25], [21.2, 1090, 540, 1.25], [22.0, 1040, 510, 1]];
+const camStage = t => { const v = K.kf(t, CAM_STAGE); return { cx: v[0], cy: v[1], z: v[2] }; };
+const camCard = t => K.kf(t, CAM_CARD);
+
+// ---------- 실사(§3) ----------
+LIVE.N.sample = 30;                                         // 세트 등록: 실사프레임/sample/0001~0030.jpg (G 소스 123 합본 s123 0025~0054 = 클로드 앱 첫 화면 1초, 1422x800)
+const WIN = { x: 1040, y: 510, w: 1316, h: 740, r: 32 };    // 카드 안 고정 창(카드 로컬). 왼쪽 끝 382 > 토큰 250
+const SMALL = { x: 760, y: 500, w: 880, h: 495, r: 32 };    // 창 축소 자리(22.0~23.0, 결과 문서에 자리 내줌)
+const LT0 = 14.0, LT1 = 17.0;                               // 대사 구간(비트 #n) = 실사가 도는 구간
+const LRATE = K.clamp(LIVE.N.sample / ((LT1 - LT0) * 30), 0.6, 1.5);   // 0.333 → 0.6(한계 속도)
+const liveIdx = t => Math.min(LIVE.N.sample - 1, Math.max(0, Math.floor((t - LT0) * 30 * LRATE + 1e-6)));
+const TOK = { x: 150, y: 740, r: 100 };                      // 토큰 me(카드 밖 캐릭터 = 카드 안 토큰) 구석 상주
+const winRect = t => K.lerpRect(WIN, SMALL, E(pr(t, 22.0, 23.0)));
+
+// 실사 프레임을 둥근 창 R 안에 그린다(창 크기 비례 모서리·테두리). cam = [cx,cy,z] 창 안 그림 카메라. 가짜 UI 덧그리기 금지
+function picDraw(c, img, R, cam) {
+  const s = R.w / WIN.w, [cx0, cy0, z] = cam;
+  const mx = WIN.w / 2 * (1 - 1 / z), my = WIN.h / 2 * (1 - 1 / z);          // 그림이 창을 늘 덮도록 기준점 제한
+  const cx = K.clamp(cx0, WIN.x - mx, WIN.x + mx), cy = K.clamp(cy0, WIN.y - my, WIN.y + my);
+  const x = R.x - R.w / 2, y = R.y - R.h / 2, r = WIN.r * s;
+  c.save(); K.rr(c, x, y, R.w, R.h, r); c.save(); c.clip();
+  c.translate(R.x, R.y); c.scale(s * z, s * z); c.translate(-cx, -cy);
+  if (img) { const k = Math.max(WIN.w / img.naturalWidth, WIN.h / img.naturalHeight), dw = img.naturalWidth * k, dh = img.naturalHeight * k; c.drawImage(img, WIN.x - dw / 2, WIN.y - dh / 2, dw, dh); }
+  else { c.fillStyle = '#FF00FF'; c.fillRect(WIN.x - WIN.w / 2, WIN.y - WIN.h / 2, WIN.w, WIN.h); }   // 못 불러온 프레임 = 눈에 띄게(verify-seek가 잡는다)
+  c.restore();
+  K.rr(c, x, y, R.w, R.h, r); c.strokeStyle = C.ink; c.lineWidth = 4 * s; c.lineJoin = 'round'; c.stroke();
+  c.restore();
+}
+
+// ---------- 카드 안(카드 로컬 1920x1080, y > 880 금지, 좌상단 HUD·우상단 배지 자리 y < 110 비우기) ----------
+function inside(c, t) {
+  c.save(); c.beginPath(); c.rect(0, 0, 1920, K.SAFE); c.clip();
+  picDraw(c, LIVE.peek('sample', liveIdx(t)), winRect(t), camCard(t));
+  const dp = pr(t, 22.6, 23.4);
+  if (dp > 0) K.resultDoc(c, { x: 1530, y: 500, w: 500, h: 600, label: '결과', lines: 4, drawP: dp, check: pr(t, 23.8, 24.0), alpha: EO(pr(t, 22.4, 22.8)) });
+  const a = EO(pr(t, 12.9, 13.4)), face = t >= 14.0 && t < 17.0 ? 'focus' : t >= 23.8 && t < 25.0 ? 'surprise' : 'base';
+  if (a > 0) K.token(c, { x: TOK.x, y: TOK.y - K.hop(t, 23.8, .45, 60), r: TOK.r, kind: 'me', face, alpha: a });
+  c.restore();
+}
+
+// ---------- P1 무대(월드 좌표) ----------
+const HX = [[0.3, 960], [1.0, 960], [3.0, 300], [6.0, 300], [7.5, 520], [9.5, 520], [10.8, 200], [28.0, 200], [29.4, 960]];
+const heroX = t => K.kf(t, HX)[0];
+function hero(t) {
+  const x = heroX(t), dx = x - heroX(t - 0.06);
+  const h = t < 20 ? K.kf(t, [[0.3, 340], [1.0, 300]])[0] : K.kf(t, [[29.0, 300], [29.4, 340]])[0];
+  let face = 'base', pose = 'stand', reach = 0;
+  if (t >= 3.2 && t < 4.6) face = 'surprise';
+  if (t >= 7.5 && t < 9.5) { face = 'focus'; pose = 'reach'; reach = EO(pr(t, 7.6, 8.0)) * (1 - E(pr(t, 9.0, 9.5))); }
+  if (t >= 26.0 && t < 27.2) { face = 'surprise'; pose = 'cheer'; }
+  if (Math.abs(dx) > 0.4) pose = 'walk';
+  return { x, y: K.GROUND, h, face, pose, reach, walk: t, flip: dx < -0.4, jump: K.hop(t, 3.2, .45, 60) + K.hop(t, 26.0, .45, 60) };
+}
+function stagePre(c, t) {                                     // 0.3~12.5
+  K.groundLine(c);
+  const ta = 1 - pr(t, 0.3, 0.8);                             // 썸네일 실루엣·도장이 걷힘
+  if (ta > 0) { K.troop(c, Object.assign({}, TH.troop, { alpha: ta })); K.stamp(c, Object.assign({}, TH.stamp, { alpha: ta })); }
+  const na = 1 - pr(t, 10.0, 10.5);
+  if (t >= 3.2 && na > 0) K.bigNumber(c, { x: 1150, y: 380, text: '30', unit: '초', size: 200, p: pr(t, 3.2, 3.6), alpha: na });   // 출처: 비트 #n(샘플 숫자)
+  K.kw(c, { text: '막 하나', x: 1150, y: 170, size: 72, t, t0: 3.6, t1: 6.0 });
+  const ca = pr(t, 10.5, 11.3);
+  if (ca > 0) K.inCard(c, K.CARD, null, { alpha: ca });
+  K.character(c, hero(t));
+}
+const stageCard = c => { K.groundLine(c); K.character(c, { x: 200, y: K.GROUND, h: 300, face: 'base' }); };   // enter/leave drawStage(항등 카메라)
+function stagePost(c, t) {                                    // 25.5~
+  K.groundLine(c);
+  const ca = 1 - pr(t, 28.0, 28.6);
+  if (ca > 0) K.inCard(c, K.CARD, cc => inside(cc, t), { alpha: ca });
+  const q = pr(t, 29.0, 29.5);                               // 마지막 0.5초: THUMB 값으로 수렴
+  if (q > 0) { K.troop(c, Object.assign({}, TH.troop, { alpha: q })); K.stamp(c, Object.assign({}, TH.stamp, { p: q })); }
+  K.character(c, hero(t));
+}
+
+function liveNeed(t) { return (t >= 12.5 && t < 28.6 && t < TLAST - 1e-6) ? [['sample', liveIdx(t)]] : []; }
+function draw(t) {
+  if (t < 0.3) { K.HANDOFF.THUMB(ctx); return; }                                       // 첫 프레임 = 썸네일
+  if (t >= TLAST - 1e-6) { K.HANDOFF.THUMB(ctx); return; }                             // 마지막 프레임 = 핸드오프(엔드카드)
+  if (t < 12.5) { K.BASE(ctx); K.clipSafe(ctx); K.camApply(ctx, camStage(t)); stagePre(ctx, t); ctx.restore(); }   // clipSafe: 줌 중 땅선·요소가 하단 200px(자막 자리)로 내려오지 않게
+  else if (t < 13.0) K.enterCard(ctx, pr(t, 12.5, 13.0), K.CARD, c => inside(c, t), stageCard);
+  else if (t < 25.0) K.cardFull(ctx, c => inside(c, t));
+  else if (t < 25.5) K.leaveCard(ctx, pr(t, 25.0, 25.5), K.CARD, c => inside(c, t), stageCard);
+  else { K.BASE(ctx); stagePost(ctx, t); }
+  K.screen(ctx); K.hudSwap(ctx, t, TSWAP, HUD, TH.hud);                                // HUD·칩·배지는 항상 마지막, 전환 밖
+  K.chrome(ctx, t < 13.0 || t >= 25.5 ? {} : { chip: { n: '1', text: '실사 창', p: EO(pr(t, 13.0, 13.4)), x: K.HUD_W(ctx, HUD) + 30 } });
+}
+window.seek = async function (t) {
+  t = K.clamp(t, 0, D);
+  await LIVE.render(liveNeed(t), () => draw(t));
+  for (let k = 1; k <= 6; k++) liveNeed(t + k / 30).forEach(([s, i]) => LIVE.get(s, i));   // 앞 프레임 미리 불러오기(결정론 무관)
+};
+KIT.ready().then(async () => {
+  await Promise.all([0, LIVE.N.sample - 1].map(i => LIVE.get('sample', i)));
+  await window.seek(0); window.FILM_READY = true;
+});
+</script></body></html>

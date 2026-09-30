@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="ko"><head><meta charset="utf-8"><title>정본 킷 갤러리 v3.2</title>
+<style>html,body{margin:0;background:#F7F3EA;overflow:hidden}canvas{display:block}</style></head>
+<body><canvas id="c" width="1920" height="1080"></canvas>
+<script src="kit.js"></script>
+<script>
+/* kit_gallery — 정본 킷(템플릿/film/kit.js) 부품 한 장 점검판(정지 1프레임, seek(t)는 t를 무시한다).
+ * 용도: scripts/film/kit_check.py --gallery 가 이 페이지를 헤드리스로 찍어 kit_gallery.golden.png 와 픽셀 비교(max ≤ 8).
+ *       kit.js가 한 픽셀이라도 다르게 그리면 FAIL → 킷을 고친 사람이 골든을 다시 만들고(--make-golden) 이유를 기록한다.
+ * 계약: window.FILM / window.seek(t) / window.FILM_READY (capture.py 필름 계약과 같다).
+ * 배치: 상단 0~110 = chrome(HUD·챕터 칩·미니 배지) · 1줄 = 캐릭터 h270 7자세 조합(땅선 y400) ·
+ *       2줄 왼쪽 = 뒤돌아 걷기(8번째 조합)·HANDOFF.THUMB 축소본·person/crowd·군단 6(실루엣 3 + 표정 3) ·
+ *       2줄 오른쪽 = 부품판(0.48배 축소: 토큰 3종·서류 카드·체크 도장·도장·자물쇠·시계 2·게이지 2·온도계·갈림길·앱 화면 카드 APP3 1장).
+ *       하단 200px(y > 880)은 비운다(막 필름과 같은 자막 자리 규칙). */
+window.FILM = { duration: 1, width: 1920, height: 1080, fps: 30, offset: 0, holds: [] };
+const ctx = document.getElementById('c').getContext('2d'), K = KIT;
+const LBL = { size: 30, weight: 700, color: K.G(.7) };
+
+function thumbMini(x, y, w, h) {                     // HANDOFF.THUMB(프레임 전체)를 따로 그려 축소 → 첫 프레임·엔드카드 확인
+  const off = document.createElement('canvas'); off.width = 1920; off.height = 1080;
+  K.HANDOFF.THUMB(off.getContext('2d'));
+  ctx.save(); K.rr(ctx, x, y, w, h, 12); ctx.clip(); ctx.drawImage(off, x, y, w, h); ctx.restore();
+  K.rr(ctx, x, y, w, h, 12); ctx.lineWidth = 3; ctx.strokeStyle = K.C.ink; ctx.stroke();
+}
+
+function rowCharacters() {                           // 1줄: h270(최소 크기) 7조합
+  K.groundLine(ctx, { y: 400, x0: 30, x1: 1890 });
+  const Y = 400, X = i => 120 + i * 266;
+  const rows = [
+    [{ pose: 'stand', face: 'base' }, '서기 · 기본'],
+    [{ pose: 'walk', face: 'focus', walk: .25 }, '걷기 · 집중'],
+    [{ pose: 'tilt', face: 'surprise' }, '갸우뚱 · 놀람'],
+    [{ pose: 'cheer', face: 'base' }, '만세 · 기본'],
+    [{ pose: 'hold', face: 'focus' }, '들기(hold) · 집중'],
+    [{ pose: 'stand', face: 'base', tint: 'gray' }, "tint 'gray'"],
+    [{ pose: 'reach', face: 'surprise', reach: 1 }, '뻗기 · 놀람'],
+  ];
+  rows.forEach(([o, s], i) => { K.character(ctx, Object.assign({ x: X(i), y: Y, h: 270 }, o)); K.text(ctx, s, X(i), Y + 36, LBL); });
+}
+
+function rowLeft() {                                 // 2줄 왼쪽(x 0~1060, y 460~880)
+  K.groundLine(ctx, { y: 850, x0: 20, x1: 1110 });
+  K.character(ctx, { x: 130, y: 850, h: 270, pose: 'walk', face: 'base', walk: 0, flip: true });
+  K.text(ctx, '걷기 · 뒤돌기', 130, 552, LBL);
+  thumbMini(300, 468, 320, 180);
+  K.text(ctx, 'HANDOFF.THUMB', 460, 668, { size: 24, weight: 700, color: K.G(.7) });
+  K.crowd(ctx, { xs: [690, 780, 870, 960, 1050], y: 640, h: 130, gray: [1], amber: [3] });
+  K.text(ctx, 'person · crowd', 870, 662, { size: 24, weight: 700, color: K.G(.7) });
+  K.troop(ctx, { xs: [320, 465, 610], y: 850, h: 160, silhouette: true });          // 군단원 h160(최소) = 폭 139 → 간격 145
+  K.troop(ctx, { xs: [755, 900, 1045], y: 850, h: 160, faces: ['base', 'focus', 'surprise'] });
+}
+
+function panel() {                                   // 2줄 오른쪽 부품판: 가상 1660x840 → 0.48배 → 화면 x 1110~1907, y 460~863
+  ctx.save(); ctx.translate(1110, 460); ctx.scale(.48, .48);
+  K.token(ctx, { x: 110, y: 130, r: 100, kind: 'me', caption: '나' });
+  K.token(ctx, { x: 340, y: 130, r: 100, kind: 'ai', face: 'focus', caption: 'AI' });
+  K.token(ctx, { x: 570, y: 130, r: 100, kind: 'gray', caption: '꺼짐' });
+  K.paperCard(ctx, { x: 850, y: 210, w: 300, h: 360, label: '기획', n: 3 });
+  K.stampCheck(ctx, { x: 950, y: 80, r: 55 });
+  K.stamp(ctx, { text: '확정', x: 1180, y: 80, size: 80 });
+  K.lock(ctx, { x: 1440, y: 110, s: 110, open: 1 });
+  K.clockFace(ctx, { x: 1160, y: 300, r: 90, minutes: 2, style: 'hatch' });
+  K.clockFace(ctx, { x: 1420, y: 300, r: 90, minutes: 35, style: 'fill' });
+  K.gauge(ctx, { x: 250, y: 480, w: 420, h: 90, level: .75, arrowDir: 'up' });
+  K.gauge(ctx, { x: 250, y: 600, w: 420, h: 90, level: .35, color: 'hatch' });
+  K.thermo(ctx, { x: 640, top: 450, bottom: 690, hw: 26, br: 44, level: .6 });
+  K.fork(ctx, { x: 870, y: 760, s: .4, accent: 'right' });
+  const A = K.HANDOFF_SPEC.APP3[0];                 // 앱 화면 카드 APP3 1장(600x338)
+  K.inCard(ctx, { x: 1350, y: 630, w: A.w, h: A.h, r: A.r }, K.APP_INSIDE[0]);
+  ctx.restore();
+}
+
+function draw() {
+  K.BASE(ctx);
+  rowCharacters();
+  rowLeft();
+  panel();
+  K.text(ctx, 'KIT ' + K.VERSION + ' 갤러리', 870, 64, { size: 36, weight: 800 });
+  K.chrome(ctx, { hud: '① 사용법', chip: { n: '!', text: '꿀팁' }, badge: { checked: [1, .6, 0], active: 1 } });
+}
+window.seek = function (t) { draw(); };
+KIT.ready().then(() => { window.seek(0); window.FILM_READY = true; });
+</script></body></html>
