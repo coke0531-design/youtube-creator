@@ -180,7 +180,7 @@ curl https://api.openai.com/v1/audio/transcriptions \
 **3a. AI가 transcript.json을 직접 분석해 SRT를 작성한다 (의미 보정만):**
 
 - **자연스러운 구/문장 단위로 묶는다** — 단어 단위 ❌. **글자수(16자)를 손으로 맞추려 하지 마라.** 분할은 3b 스크립트가 한다.
-- **타임코드는 원본 오디오 시간 그대로** (배속 변환 없음). **transcript.json은 불변** — 아래 교정·보정은 전부 full.srt에만 (Whisper 원본은 쇼츠 컷 계산에 재사용).
+- **타임코드는 원본 오디오 시간 그대로** (배속 변환 없음). **transcript.json은 불변** — 아래 교정·보정은 전부 full.srt에만 (Whisper 원본은 쇼츠 컷 계산에 재사용 — 단 이 시각은 **원본 속도 기준**이라 녹음본을 자르는 youtube-short-generator에만 그대로 쓴다. 1.15배속 완성본을 자르는 shorts-remix는 `final.mp4` 추출 오디오로 STT를 다시 돌린다).
 
 **3a-2. 교정 사전을 기계 적용한다 (반복 오인식은 프롬프트가 아니라 사전이 잡는다 — 16자 캡과 같은 구조적 강제):**
 

@@ -131,6 +131,13 @@ def probe_fps(path, default=30.0):
         m = re.match(r"(\d+)/(\d+)", p.stdout.strip())
         if m and int(m.group(2)) > 0 and int(m.group(1)) > 0:
             return int(m.group(1)) / int(m.group(2))
+    # ffprobe가 없는 환경(imageio_ffmpeg 등) — probe_dur와 같이 ffmpeg -i 출력에서 읽는다
+    p = subprocess.run([find_ffmpeg(), "-hide_banner", "-i", str(path)], capture_output=True,
+                       text=True, encoding="utf-8", errors="replace")
+    m = re.search(r"Video:.*?(\d+(?:\.\d+)?)\s*fps", p.stderr)
+    if m and float(m.group(1)) > 0:
+        return float(m.group(1))
+    print(f"[경고] 프레임레이트를 읽지 못해 {default:g}fps로 둔다: {path}", file=sys.stderr)
     return default
 
 

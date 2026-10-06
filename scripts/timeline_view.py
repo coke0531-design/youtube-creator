@@ -20,7 +20,9 @@
 사용
   python scripts/timeline_view.py "결과물/2026-08-27_E2E_..." 10 16
   python scripts/timeline_view.py <작업폴더>/타임라인.json 0 6 --frames 8
-  python scripts/timeline_view.py <작업폴더> 30 40 --video 완성본/final.mp4
+  python scripts/timeline_view.py <작업폴더> 30 40 --video 04_영상소스/capture.mp4 --audio 02_음성/narration.m4a
+  주의: 본편 완성본/final.mp4는 mux.py가 1.15배속을 건 결과라(2026-10-06) 원본 시각 기준인 transcript·타임라인과
+        겹쳐 보면 어긋난다. 본편은 위처럼 capture.mp4 + narration.m4a(원본 속도)로 본다. --speed 1 완성본만 예외.
   옵션: --video --audio --transcript --frames 12 --width 1600 --gap 0.4 --out --font
 
 종료 코드: 0 = 성공, 2 = 입력 오류(파일 없음·범위 오류·ffmpeg 실패)
