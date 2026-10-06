@@ -19,7 +19,7 @@ segment.py  → 02_음성/narration.m4a · 03_자막/{transcript.json, full.srt,
 capture.py  → capture.mp4            (필름 HTML → mp4, --verify-seek 로 결정론 검사)
 beatsheet.py→ sheet.jpg              (비트별 대표 프레임 한 장)
 still_ratio.py → 정지 비율 JSON       (check_motion.py 와 같은 판정식)
-mux.py      → final.mp4              (자막 번인 + loudnorm, 길이 = 오디오)
+mux.py      → final.mp4              (자막 번인 + loudnorm + 끝에서 1.15배속, 길이 = 오디오 ÷ 배속)
 ```
 
 ## 스크립트 요약
@@ -29,7 +29,7 @@ mux.py      → final.mp4              (자막 번인 + loudnorm, 길이 = 오�
 | segment.py | 긴 녹음·transcript에서 [S,E] 구간 발췌 | aac 192k/48k 재인코딩. transcript는 원본 키 구조 유지(모르는 키도 보존). 경계에 걸친 segment·SRT 컷은 원본 중점 기준 구간 안 단어로 text 재구성. SRT는 16자 초과 시 단어 경계 균등 분할·글자 수 비례 시간 배분. 비트 원천: segments → 없으면 같은 폴더 full.srt(무음 < 0.45s·합친 길이 ≤ 4.5s 병합) → 그것도 없으면 words(0.45s 이상 갭 분할). `--beats-only`는 beats.json만 쓴다(같은 폴더 지정 가능, 다른 파일 해시 불변 확인). beats-only 없이 --src=--out 이면 거부(exit 2). |
 | capture.py | 필름 HTML → mp4 | `--workers N`(v3.1): 프레임 구간을 N등분해 자식 프로세스(`--workers 0`)로 찍고 concat `-c copy`. 60초 경량 필름 97.5s→37.4s(워커 4). `FILM.holds`가 있으면 `<out>.holds.json`으로 저장. Playwright chromium headless, viewport=size, DSF 1, `--force-color-profile=srgb --disable-gpu-vsync` 등. 프레임마다 `seek(t)` → CDP `Page.captureScreenshot(png, optimizeForSpeed)` → ffmpeg image2pipe 스트리밍. h264_nvenc cq19(시험 인코딩 실패 시 libx264 crf18), yuv420p·bt709·tv-range. 10초마다 진행 로그. `--verify-seek N`: t=0·끝 프레임 포함 N개 시각을 ① 같은 페이지 순방향 2회 ② 같은 브라우저 **새 페이지에서 무작위 순서**로 찍어 ①의 1회차와 비교, 결과를 따로 보고하고 `<out>.verify.json` 저장. 차이 있으면 exit 1. |
 | beatsheet.py | 비트 표 → 프레임 시트 jpg | 비트 start+offset(비트 끝 - 1/fps, 영상 끝 - 1/fps 로 클램프) 시각 캡처, 480px 타일, 밑에 `#i t=.. "앞 18자"` 라벨(malgun.ttf). `--times`는 `@n t=..` 라벨. 둘 다 주면 합친다. |
-| mux.py | 완성본 합성 | SRT→ASS(PlayRes 1920x1080, Alignment 2, MarginV = --bottom, 좌우 160). 폰트 Pretendard 설치 시 Pretendard, 아니면 Malgun Gothic. `--style outline`(기본, 흰 글자·검은 외곽선 3px·볼드) / `--style box`(render_final.py 흰 상자 자막 재현). 1920x1080 lanczos 정규화 → 오버레이(선택) → ass 번인. 오디오 loudnorm I=-14:TP=-1.5:LRA=11 1-pass → 48k aac 192k. `-shortest` 없음: 비디오가 짧으면 마지막 프레임 tpad clone, 길이는 `-t 오디오 길이`. 인코더 nvenc cq19 / libx264 crf17(render_final과 동일). |
+| mux.py | 완성본 합성 | SRT→ASS(PlayRes 1920x1080, Alignment 2, MarginV = --bottom, 좌우 160). 폰트 Pretendard 설치 시 Pretendard, 아니면 Malgun Gothic. `--style outline`(기본, 흰 글자·검은 외곽선 3px·볼드) / `--style box`(render_final.py 흰 상자 자막 재현). 1920x1080 lanczos 정규화 → 오버레이(선택) → ass 번인. 오디오 loudnorm I=-14:TP=-1.5:LRA=11 1-pass → 48k aac 192k. `-shortest` 없음: 비디오가 짧으면 마지막 프레임 tpad clone, 길이는 `-t 오디오 길이 ÷ 배속`. `--speed`(기본 1.15, 2026-10-06 오너 결정): 자막 번인 뒤 영상 `setpts` + `fps`(원래 프레임레이트 유지), 오디오 `atempo`(음높이 유지) → loudnorm. 입력은 전부 원본 속도, `--speed 1`이면 배속 없음. 인코더 nvenc cq19 / libx264 crf17(render_final과 동일). |
 | join_acts.py (v3.1) | 막 캡처 이어 붙이기 + 이음매 검사 | 막 N 마지막 프레임 vs 막 N+1 첫 프레임 픽셀 차(mean ≤ 2 · max ≤ 80 OK, nvenc 잡음 실측 max 51~63) → concat demuxer `-c copy`. `--no-concat`로 검사만. E·F 실측 5곳 전부 OK |
 | cam_check.py (v3.2) | 카메라 왕복 검사 | 필름 HTML의 `const CAM…=[[t,x,z],…]` 배열을 읽어 R1 유지 3초·R2 작은 밀기·R3 6초 왕복·R4 이동당 4초 위반을 센다. 배열 방식이 아니면 exit 2(수동 검사). G4 실측: CAM_A 24키프레임/33초 → 위반 다수 |
 | still_ratio.py | 정지 화면 비율 | `--holds "a-b,c-d"` 또는 JSON(v3.1): 홀드 안 표본을 뺀 비율 열(`still_ratio_excl_holds`)과 평균(`avg_still_ratio_excl_holds`)을 함께 낸다. 판정은 기본 raw(`--judge excl`로 바꿀 수 있음). check_motion.py diff_series 그대로: 10fps·320px 그레이, `d5 = mean|f[k]-f[k-5]|`(0.5초 격자) < eps(1.0) 이면 정지. 창 [a,b]는 a+0.5 ≤ t ≤ b 표본으로 비율 계산, fail 0.75(초과)/warn 0.50(이상). 평균 = 판정 창 평균. 최대 정지 연속 구간 = 연속 정지 표본 (n-1)*0.1+0.5초. 참고용 인접 프레임(d1) 정지 비율도 출력(판정 미사용). FAIL 있으면 exit 1. |
@@ -125,7 +125,7 @@ options:
 === mux.py
 usage: mux.py [-h] --video VIDEO --audio AUDIO --srt SRT --out OUT [--font-size FONT_SIZE] [--bottom BOTTOM]
               [--style {outline,box}] [--overlay OVERLAY] [--overlay-start OVERLAY_START]
-              [--encoder {auto,nvenc,x264}] [--keep-ass]
+              [--speed SPEED] [--encoder {auto,nvenc,x264}] [--keep-ass]
 
 캡처 영상 + 나레이션 + SRT 번인(+오버레이) → 완성본 mp4 (길이=오디오)
 
@@ -143,6 +143,7 @@ options:
   --overlay OVERLAY     오버레이 영상(선택, 1920x1080 권장)
   --overlay-start OVERLAY_START
                         오버레이 시작 초(기본 0)
+  --speed SPEED         완성본 배속(기본 1.15). 입력은 원본 속도 그대로, 합성 끝에서 영상·오디오에 함께 적용. 1 = 배속 없음
   --encoder {auto,nvenc,x264}
   --keep-ass            생성한 ASS를 출력 옆에 <out>.ass로 남긴다
 === still_ratio.py

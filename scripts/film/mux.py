@@ -8,11 +8,15 @@
 - 비디오: 1920x1080 lanczos 정규화(out_range=tv) → 오버레이(선택, overlay-start부터) → ass 번인
 - 오디오: loudnorm I=-14:TP=-1.5:LRA=11 (1-pass) → aresample 48000, aac 192k
 - 길이 = 오디오 기준. -shortest 쓰지 않음. 비디오가 짧으면 마지막 프레임 tpad(clone), 길면 -t로 자름.
+- 배속: --speed (기본 1.15, 2026-10-06 오너 결정). 합성의 맨 끝에서 한 번만 건다 — 입력(캡처·나레이션·SRT)은
+  전부 원본 속도 타임베이스 그대로 받고, 자막 번인 뒤 영상 setpts + 오디오 atempo(음높이 유지)를 같은 인코딩에서 적용.
+  출력 길이 = 오디오 ÷ speed. 원본 속도본이 필요하면 --speed 1.
 - 인코더: h264_nvenc cq19 → 불가 시 libx264 crf17 (render_final.py와 동일), yuv420p bt709 tv
 
 사용:
   python mux.py --video capture.mp4 --audio narration.m4a --srt full.srt --out final.mp4
   python mux.py ... --font-size 60 --bottom 108 --overlay ov.mp4 --overlay-start 12.5
+  python mux.py ... --speed 1        # 원본 속도본(배속 없음)
 """
 import argparse
 import os
@@ -32,6 +36,8 @@ MARGIN_LR = 160
 # render_final.py '흰 상자 자막' 색·치수 (box 스타일용)
 BOX_INK, BOX_FILL, BOX_RIM, BOX_SHADOW = "&H00131414", "&H00FEFEFD", "&H00010E16", "&H0003263B"
 BOX_PAD, BOX_RIM_W, BOX_SHADOW_OFF = 8, 2, 10
+DEFAULT_SPEED = 1.15  # 완성본 기본 배속(오너 결정 2026-10-06)
+SPEED_MIN, SPEED_MAX = 0.5, 2.0  # atempo 단일 필터 허용 범위
 
 
 def pick_font():
@@ -117,6 +123,17 @@ def probe_dur(path):
     return int(m.group(1)) * 3600 + int(m.group(2)) * 60 + float(m.group(3))
 
 
+def probe_fps(path, default=30.0):
+    exe = shutil.which("ffprobe")
+    if exe:
+        p = subprocess.run([exe, "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=r_frame_rate",
+                            "-of", "csv=p=0", str(path)], capture_output=True, text=True)
+        m = re.match(r"(\d+)/(\d+)", p.stdout.strip())
+        if m and int(m.group(2)) > 0 and int(m.group(1)) > 0:
+            return int(m.group(1)) / int(m.group(2))
+    return default
+
+
 def main():
     ap = argparse.ArgumentParser(description="캡처 영상 + 나레이션 + SRT 번인(+오버레이) → 완성본 mp4 (길이=오디오)")
     ap.add_argument("--video", required=True, help="capture.mp4")
@@ -129,6 +146,8 @@ def main():
                     help="outline = 흰 글자 검은 외곽선 3px(기본) / box = render_final 흰 상자 자막")
     ap.add_argument("--overlay", help="오버레이 영상(선택, 1920x1080 권장)")
     ap.add_argument("--overlay-start", type=float, default=0.0, help="오버레이 시작 초(기본 0)")
+    ap.add_argument("--speed", type=float, default=DEFAULT_SPEED,
+                    help=f"완성본 배속(기본 {DEFAULT_SPEED}). 입력은 원본 속도 그대로, 합성 끝에서 영상·오디오에 함께 적용. 1 = 배속 없음")
     ap.add_argument("--encoder", choices=["auto", "nvenc", "x264"], default="auto")
     ap.add_argument("--keep-ass", action="store_true", help="생성한 ASS를 출력 옆에 <out>.ass로 남긴다")
     args = ap.parse_args()
@@ -136,6 +155,10 @@ def main():
     for f in [args.video, args.audio, args.srt] + ([args.overlay] if args.overlay else []):
         if not Path(f).exists():
             die(f"[입력 오류] 파일이 없다: {f}")
+    speed = args.speed
+    if not SPEED_MIN <= speed <= SPEED_MAX:
+        die(f"[입력 오류] --speed 는 {SPEED_MIN}~{SPEED_MAX} 사이여야 한다: {speed}")
+    sped = abs(speed - 1.0) > 1e-9
     ff = find_ffmpeg()
     out = Path(args.out).resolve()
     out.parent.mkdir(parents=True, exist_ok=True)
@@ -158,11 +181,16 @@ def main():
         cur = "[b1]"
     a_idx = len(inputs) // 2
     inputs += ["-i", str(Path(args.audio).resolve())]
-    parts.append(f"{cur}ass=subs.ass[vout]")
-    parts.append(f"[{a_idx}:a]loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]")
+    # 배속은 자막 번인 뒤에 건다(자막·오버레이 시각은 원본 타임베이스). fps 필터로 원래 프레임레이트 유지.
+    v_speed = f",setpts=PTS/{speed:.6f},fps={probe_fps(args.video):.6f}" if sped else ""
+    a_speed = f"atempo={speed:.6f}," if sped else ""
+    parts.append(f"{cur}ass=subs.ass{v_speed}[vout]")
+    parts.append(f"[{a_idx}:a]{a_speed}loudnorm=I=-14:TP=-1.5:LRA=11,aresample=48000[aout]")
+    o_target = a_dur / speed
     fg = ";".join(parts)
 
-    print(f"[mux] 영상 {v_dur:.2f}s · 오디오 {a_dur:.2f}s → 출력 {a_dur:.2f}s"
+    print(f"[mux] 영상 {v_dur:.2f}s · 오디오 {a_dur:.2f}s → 출력 {o_target:.2f}s"
+          f"{f' (배속 {speed:g}x)' if sped else ''}"
           f"{f' (마지막 프레임 {pad:.2f}s 연장)' if pad > 0 else ''} · 자막 {ncue}컷 {args.style} "
           f"{font} {args.font_size}px bottom {args.bottom} · 인코더 {enc_label}")
     t0 = time.time()
@@ -172,14 +200,17 @@ def main():
             out.with_suffix(".ass").write_text(ass, encoding="utf-8")
         cmd = [ff, "-hide_banner", "-loglevel", "error", "-y", *inputs, "-filter_complex", fg,
                "-map", "[vout]", "-map", "[aout]", *enc, *COLOR_OUT,
-               "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f"{a_dur:.3f}",
+               "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", f"{o_target:.3f}",
                "-movflags", "+faststart", str(out)]
         p = subprocess.run(cmd, cwd=td, capture_output=True, text=True, encoding="utf-8", errors="replace")
     if p.returncode != 0 or not out.exists():
         print(f"[실패] ffmpeg rc={p.returncode}: {p.stderr[-1200:]}", file=sys.stderr)
         return 1
     o_dur = probe_dur(out)
-    print(f"[완료] {out}  길이 {o_dur:.2f}s (오디오 {a_dur:.2f}s, 차 {o_dur - a_dur:+.2f}s)  {time.time() - t0:.1f}s")
+    print(f"[완료] {out}  길이 {o_dur:.2f}s (오디오 {a_dur:.2f}s ÷ {speed:g} = {o_target:.2f}s, "
+          f"차 {o_dur - o_target:+.2f}s)  {time.time() - t0:.1f}s")
+    if sped:
+        print(f"[배속] 완성본 시각 = 원본 시각 ÷ {speed:g} (챕터·이음매 위치를 완성본에서 찾을 때 환산)")
     return 0
 
 
